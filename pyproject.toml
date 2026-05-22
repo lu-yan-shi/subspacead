@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "subspacead"
+version = "0.1.0"
+description = "SubspaceAD Codebase"
+dependencies = [
+    "torch",
+    "torchvision",
+    "transformers",
+    "opencv-python",
+    "kornia",
+    "anomalib"
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

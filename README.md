@@ -1,93 +1,173 @@
 # SubspaceAD
 
+基于 DINOv2 特征和 PCA 子空间建模的少样本异常检测服务。提供 FastAPI 接口和可视化测试页面，专为工业质检场景设计。
 
+## 特性
 
-## Getting started
+- **少样本学习** — 仅需 1-2 张正常图像即可训练
+- **DINOv2 特征提取** — 基于 Vision Transformer 的自监督特征
+- **PCA 子空间建模** — GPU 加速的两遍式流式 PCA
+- **四种评分方法** — 重建误差、马氏距离、欧氏距离、余弦距离
+- **三种可视化模式** — 热力图叠加、左右对比、缺陷框标注
+- **参数可调** — 分辨率、PCA 方差比、评分方法均可调节
+- **开箱即用** — 已配置本地模型 (DINOv2-small)
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+## 快速开始
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+### Docker（推荐）
 
-## Add your files
+```bash
+# GPU 模式
+docker build -t subspacead .
+docker run -d --gpus all -p 8703:8703 subspacead
 
-* [Create](https://docs.gitlab.com/user/project/repository/web_editor/#create-a-file) or [upload](https://docs.gitlab.com/user/project/repository/web_editor/#upload-a-file) files
-* [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+# CPU 模式
+docker run -d -p 8703:8703 subspacead
+```
+
+打开 http://localhost:8703 进入测试页面。
+
+### 本地运行
+
+```bash
+pip install -r requirements.txt
+python main.py
+```
+
+依赖：Python 3.8+，PyTorch 1.8+，transformers，OpenCV
+
+## API 文档
+
+启动后访问 http://localhost:8703/docs 查看 Swagger UI。
+
+### POST /train
+
+训练 PCA 子空间模型。
+
+**请求格式：** `multipart/form-data`
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `files` | File[] | 是 | 正常图像（无缺陷的模板图，1 张即可） |
+| `image_res` | int | 否 | 输入分辨率（默认 512） |
+| `pca_ev` | float | 否 | PCA 保留方差比例 0-1（默认 0.99） |
+| `score_method` | string | 否 | 评分方法（默认 reconstruction） |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "pca_components": 45,
+  "feature_dim": 768,
+  "grid_size": [32, 32],
+  "num_templates": 2,
+  "training_time_ms": 5123
+}
+```
+
+### POST /detect
+
+对上传图像进行异常检测。**需要先调用 /train。**
+
+**请求格式：** `multipart/form-data`
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `file` | File | 是 | 待检测图像 |
+| `viz_mode` | string | 否 | 可视化模式（默认 overlay） |
+| `return_heatmap` | bool | 否 | 是否返回热力图（默认 true） |
+| `bbox_threshold` | float | 否 | 缺陷检测阈值（仅 bbox 模式，默认 0.5） |
+
+**响应：**
+
+```json
+{
+  "success": true,
+  "anomaly_score": 0.8732,
+  "is_anomaly": true,
+  "threshold": 0.3,
+  "inference_time_ms": 312,
+  "heatmap": "base64...",
+  "visualization": "base64...",
+  "viz_mode": "overlay"
+}
+```
+
+### 监控端点
+
+| 路径 | 说明 |
+|------|------|
+| `GET /health` | 健康检查 |
+| `GET /api-info` | 服务元信息 |
+| `GET /metrics` | 请求统计 |
+| `GET /resources` | 资源利用率（CPU/内存/磁盘/GPU） |
+| `GET /endpoint-metrics` | 各端点统计 |
+| `GET /logs` | 服务日志 |
+| `GET /status` | 检测器状态 |
+
+## 可视化模式
+
+| 模式 | 说明 | 适用场景 |
+|------|------|----------|
+| `overlay`（默认） | 原图叠加热力图 | 直观显示缺陷位置 |
+| `side_by_side` | 左边原图，右边叠加 | 对比观察变化 |
+| `bbox` | 原图 + 红色缺陷框 | 报告展示、快速定位 |
+
+## 评分方法
+
+| 方法 | 说明 | 特点 |
+|------|------|------|
+| `reconstruction`（默认） | PCA 重建误差 | 通用场景 |
+| `mahalanobis` | 马氏距离 | 对异常更敏感 |
+| `euclidean` | 欧氏距离 | 计算最简单 |
+| `cosine` | 余弦距离 | 对尺度不敏感 |
+
+## 参数调优
+
+| 参数 | 作用 | 建议 |
+|------|------|------|
+| `image_res` | 输入分辨率 | 256-384 快速，512-768 精细 |
+| `pca_ev` | PCA 方差保留比例 | 0.95-0.99，越高保留细节越多 |
+| `score_method` | 评分方法 | reconstruction 通用，mahalanobis 更敏感 |
+| 异常阈值 | 判断是否异常（默认 0.3） | 严格 0.2，宽松 0.5 |
+
+## 项目结构
 
 ```
-cd existing_repo
-git remote add origin https://git.workplat.com/huangqiwei/subspacead.git
-git branch -M dev
-git push -uf origin dev
+SubspaceAD/
+├── main.py                       # FastAPI 服务入口
+├── subspace_anomaly_detector.py  # 核心检测器（可独立迁移）
+├── Dockerfile                    # Docker 构建文件
+├── requirements.txt              # Python 依赖
+├── static/
+│   └── index.html                # 可视化测试页面
+├── src/subspacead/               # 核心模块
+│   ├── core/
+│   │   ├── extractor.py          # DINOv2 特征提取
+│   │   ├── pca.py                # GPU 加速 PCA
+│   │   └── patching.py           # 图像分块
+│   ├── post_process/
+│   │   ├── scoring.py            # 异常分数计算
+│   │   └── specular.py           # 高光滤波
+│   └── utils/
+│       ├── common.py             # 通用工具
+│       └── viz.py                # 可视化工具
+├── models/dinov2-small/          # 本地 DINOv2 模型
+├── datas/                        # 测试数据
+├── CHANGELOG.md                  # 变更日志
+└── README.md                     # 本文档
 ```
 
-## Integrate with your tools
+## 技术说明
 
-* [Set up project integrations](https://git.workplat.com/huangqiwei/subspacead/-/settings/integrations)
+- 基于 DINOv2 (Vision Transformer) 特征提取
+- GPU 加速的两遍式 PCA（均值 → 协方差 → 特征分解）
+- GPU 自动检测：有 CUDA 则用 GPU，否则退回 CPU
+- 已配置本地模型 `models/dinov2-small`，无需联网下载
+- 单文件上限：50 MB
+- 支持格式：PNG、JPG、JPEG、BMP、TIFF
 
-## Collaborate with your team
+## 许可
 
-* [Invite team members and collaborators](https://docs.gitlab.com/user/project/members/)
-* [Create a new merge request](https://docs.gitlab.com/user/project/merge_requests/creating_merge_requests/)
-* [Automatically close issues from merge requests](https://docs.gitlab.com/user/project/issues/managing_issues/#closing-issues-automatically)
-* [Enable merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/)
-* [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
-
-## Test and Deploy
-
-Use the built-in continuous integration in GitLab.
-
-* [Get started with GitLab CI/CD](https://docs.gitlab.com/ci/quick_start/)
-* [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/user/application_security/sast/)
-* [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/topics/autodevops/requirements/)
-* [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/user/clusters/agent/)
-* [Set up protected environments](https://docs.gitlab.com/ci/environments/protected_environments/)
-
-***
-
-# Editing this README
-
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
-
-## Suggestions for a good README
-
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
-
-## Name
-Choose a self-explaining name for your project.
-
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
-
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
-
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
-
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
-
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
-
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
-
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
-
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
-
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
-
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
-
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
-
-## License
-For open source projects, say how it is licensed.
-
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+MIT License
