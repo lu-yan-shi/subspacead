@@ -83,14 +83,22 @@ class SubspaceAnomalyDetector:
             # 获取当前文件所在目录
             current_dir = Path(__file__).parent
             local_model_path = current_dir / "models" / "dinov2-small"
-            
+
             if local_model_path.exists():
                 self.model_ckpt = str(local_model_path)
                 logger.info(f"使用本地模型：{self.model_ckpt}")
             else:
-                # 如果本地模型不存在，使用远程模型
-                self.model_ckpt = "facebook/dinov2-small"
-                logger.info(f"本地模型未找到，使用远程模型：{self.model_ckpt}")
+                raise FileNotFoundError(
+                    f"本地模型未找到，请手动放置模型文件到以下目录：\n"
+                    f"  {local_model_path}\n\n"
+                    f"可从以下方式获取模型：\n"
+                    f"  1. 从 HuggingFace 下载：\n"
+                    f"     https://huggingface.co/facebook/dinov2-small/tree/main\n"
+                    f"  2. 从已经部署的服务器 / 其他机器复制 models/dinov2-small/ 目录\n"
+                    f"  3. 运行以下 Python 脚本自动下载：\n"
+                    f"     from transformers import AutoModel, AutoImageProcessor\n"
+                    f"     AutoModel.from_pretrained('facebook/dinov2-small', cache_dir='models')\n"
+                )
         else:
             self.model_ckpt = model_ckpt
         self.image_res = image_res
@@ -470,18 +478,18 @@ class SubspaceAnomalyDetector:
 
 # 便捷函数
 def create_detector(
-    model: str = "facebook/dinov2-small",
+    model: str = None,
     resolution: int = 512,
     **kwargs
 ) -> SubspaceAnomalyDetector:
     """
     快速创建检测器实例
-    
+
     Args:
-        model: 模型名称
+        model: 模型路径，为 None 则使用本地 models/dinov2-small
         resolution: 分辨率
         **kwargs: 其他参数传递给 SubspaceAnomalyDetector
-        
+
     Returns:
         SubspaceAnomalyDetector 实例
     """

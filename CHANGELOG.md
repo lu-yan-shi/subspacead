@@ -17,4 +17,5 @@
 ### Changed
 - 更新 requirements.txt，添加 FastAPI 和监控依赖
 - Dockerfile 重构：分层 COPY、添加构建注释、配置清华 pip 镜像源
+- **移除 HuggingFace 自动下载回退**：本地模型不存在时改为抛出 `FileNotFoundError`，提示手动放置
 - 移除 test.py（已由可视化测试页面替代）
