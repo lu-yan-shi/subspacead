@@ -1,15 +1,8 @@
 import cv2
 import numpy as np
 import logging
-import sys
-from pathlib import Path
 
-# 添加父目录到路径以支持直接导入
-parent_dir = str(Path(__file__).parent.parent)
-if parent_dir not in sys.path:
-    sys.path.insert(0, parent_dir)
-
-from utils.common import topk_mean
+from ..utils.common import topk_mean
 
 
 def aggregate_image_score(anomaly_map: np.ndarray, method: str) -> float:

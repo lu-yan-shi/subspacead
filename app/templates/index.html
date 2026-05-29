@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SubspaceAD — 异常检测</title>
+<style>
+/* ============================================================
+   MeSquare Theme Variables
+   ============================================================ */
+:root, [data-theme="dark"] {
+  --bg-base: #0c0c0c;
+  --bg-elevated: #111114;
+  --surface-1: #161618;
+  --surface-2: #1c1c20;
+  --surface-3: #232328;
+  --text-primary: #f0f0f5;
+  --text-secondary: rgba(255,255,255,0.55);
+  --text-tertiary: rgba(255,255,255,0.3);
+  --border: rgba(255,255,255,0.08);
+  --border-hover: rgba(255,255,255,0.14);
+  --accent: #818cf8;
+  --accent-hover: #a5b4fc;
+  --accent-subtle: rgba(129,140,248,0.1);
+  --success: #6dcba1;
+  --success-subtle: rgba(109,203,161,0.12);
+  --warning: #e4b55e;
+  --warning-subtle: rgba(228,181,94,0.12);
+  --error: #e87272;
+  --error-subtle: rgba(232,114,114,0.12);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.4);
+  --shadow-md: 0 8px 32px rgba(0,0,0,0.5);
+  --input-bg: #1c1c20;
+}
+[data-theme="light"] {
+  --bg-base: #f5f4f1;
+  --bg-elevated: #faf9f7;
+  --surface-1: #ffffff;
+  --surface-2: #efeee9;
+  --surface-3: #e7e5e0;
+  --text-primary: #2c2c2c;
+  --text-secondary: #636363;
+  --text-tertiary: #919191;
+  --border: #ddd9d3;
+  --border-hover: #c5c0b8;
+  --accent: #6366f1;
+  --accent-hover: #4f46e5;
+  --accent-subtle: rgba(99,102,241,0.08);
+  --success: #3d9e6f;
+  --success-subtle: rgba(61,158,111,0.1);
+  --warning: #c08a2e;
+  --warning-subtle: rgba(192,138,46,0.1);
+  --error: #c94a4a;
+  --error-subtle: rgba(201,74,74,0.1);
+  --shadow-sm: 0 2px 8px rgba(0,0,0,0.06);
+  --shadow-md: 0 8px 32px rgba(0,0,0,0.08);
+  --input-bg: #ffffff;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  background: var(--bg-base); color: var(--text-primary);
+  line-height: 1.6; min-height: 100vh;
+}
+
+/* ============================================================
+   Header
+   ============================================================ */
+header {
+  background: var(--bg-elevated); border-bottom: 1px solid var(--border);
+  padding: 16px 24px; display: flex; align-items: center; justify-content: space-between;
+  box-shadow: var(--shadow-sm);
+}
+header h1 { font-size: 1.25rem; font-weight: 600; }
+header h1 span { color: var(--accent); }
+header .sub { font-size: 0.8rem; color: var(--text-tertiary); }
+.theme-toggle {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
+  padding: 6px 12px; cursor: pointer; font-size: 1.1rem; color: var(--text-primary);
+  transition: border-color 0.2s;
+}
+.theme-toggle:hover { border-color: var(--border-hover); }
+
+/* ============================================================
+   Layout
+   ============================================================ */
+main { max-width: 1000px; margin: 0 auto; padding: 24px; }
+.card {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: var(--radius-md); padding: 20px; margin-bottom: 20px;
+  box-shadow: var(--shadow-sm);
+}
+.card h2 { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 14px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+.btn {
+  padding: 10px 0; border: none; border-radius: var(--radius-sm);
+  font-size: 14px; font-weight: 500; cursor: pointer;
+  transition: all 0.2s; width: 100%;
+}
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); }
+.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-danger { background: var(--error-subtle); color: var(--error); border: 1px solid var(--error); }
+.btn-danger:hover { background: rgba(232,114,114,0.2); }
+.btn-loading { position: relative; color: transparent; }
+.btn-loading::after {
+  content: ""; position: absolute; left: 50%; top: 50%;
+  width: 18px; height: 18px; margin: -9px 0 0 -9px;
+  border: 2px solid rgba(255,255,255,0.3);
+  border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ============================================================
+   Form Controls
+   ============================================================ */
+.form-group { margin-bottom: 14px; }
+.form-group label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px; color: var(--text-secondary); }
+.form-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.form-row .form-group { flex: 1; min-width: 140px; }
+select, input[type="number"], input[type="file"] {
+  width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
+  font-size: 14px; background: var(--input-bg); color: var(--text-primary);
+}
+select:focus, input:focus { outline: none; border-color: var(--accent); }
+input[type="file"] { padding: 6px; }
+.file-list { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
+.btn-group { display: flex; gap: 8px; margin-top: 16px; }
+.btn-group .btn { width: auto; padding: 8px 20px; }
+
+/* ============================================================
+   Status Bar
+   ============================================================ */
+.status-bar {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  padding: 12px 16px; border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 16px;
+}
+.status-bar.untrained { background: var(--warning-subtle); color: var(--warning); border: 1px solid var(--warning); }
+.status-bar.trained { background: var(--success-subtle); color: var(--success); border: 1px solid var(--success); }
+.status-bar .dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  flex-shrink: 0;
+}
+.untrained .dot { background: var(--warning); }
+.trained .dot { background: var(--success); }
+
+/* ============================================================
+   Results
+   ============================================================ */
+.result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.result-card {
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: var(--radius-md); overflow: hidden;
+}
+.result-card .card-label {
+  font-size: 11px; font-weight: 500; color: var(--text-secondary);
+  padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border);
+  text-transform: uppercase; letter-spacing: 0.5px;
+}
+.result-card img { display: block; width: 100%; height: auto; }
+.score-display {
+  text-align: center; padding: 24px;
+  background: var(--surface-1); border: 1px solid var(--border);
+  border-radius: var(--radius-md); margin-bottom: 16px;
+}
+.score-display .score-value { font-size: 48px; font-weight: 700; letter-spacing: -1px; }
+.score-display .score-label { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
+.score-status {
+  display: inline-block; margin-top: 8px; padding: 4px 16px; border-radius: 12px;
+  font-size: 14px; font-weight: 500;
+}
+.score-status.normal { background: var(--success-subtle); color: var(--success); }
+.score-status.anomaly { background: var(--error-subtle); color: var(--error); }
+
+/* ============================================================
+   Toast
+   ============================================================ */
+.toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: var(--surface-1); color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 10px 24px; border-radius: var(--radius-sm);
+  font-size: 13px; z-index: 999; opacity: 0; transition: opacity 0.3s;
+  pointer-events: none; box-shadow: var(--shadow-md);
+}
+.toast.show { opacity: 1; }
+.hidden { display: none; }
+
+/* ============================================================
+   Error
+   ============================================================ */
+.error-msg {
+  background: var(--error-subtle); color: var(--error);
+  padding: 10px 14px; border-radius: 6px; font-size: 13px;
+  margin-top: 12px; display: none; border: 1px solid var(--error);
+}
+.error-msg.show { display: block; }
+
+@media (max-width: 700px) {
+  main { padding: 16px; }
+  .result-grid { grid-template-columns: 1fr; }
+  .form-row .form-group { min-width: 100%; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1><span>SubspaceAD</span> 异常检测</h1>
+    <div class="sub">DINOv2 + PCA 子空间建模 &nbsp;&middot;&nbsp; 少样本工业质检</div>
+  </div>
+  <button class="theme-toggle" id="themeToggle" title="切换主题">🌙</button>
+</header>
+
+<main>
+
+  <!-- Status Bar -->
+  <div id="statusBar" class="status-bar untrained">
+    <span class="dot"></span>
+    <span id="statusText">未训练 — 请先上传正常图像训练模型</span>
+    <span style="margin-left:auto;font-size:12px;opacity:0.7;" id="deviceInfo"></span>
+  </div>
+
+  <!-- Step 1: Training -->
+  <div class="card">
+    <h2>1. 训练 PCA 模型</h2>
+    <div class="form-group">
+      <label>正常图像（无缺陷的模板图）</label>
+      <input type="file" id="trainFiles" multiple accept="image/png,image/jpeg,image/jpg,image/bmp,image/tiff">
+      <div class="file-list" id="trainFileList"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>分辨率</label>
+        <select id="imageRes">
+          <option value="256">256</option>
+          <option value="384">384</option>
+          <option value="512" selected>512</option>
+          <option value="768">768</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>PCA 方差比</label>
+        <select id="pcaEv">
+          <option value="0.95">0.95</option>
+          <option value="0.97">0.97</option>
+          <option value="0.99" selected>0.99</option>
+          <option value="0.995">0.995</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>评分方法</label>
+        <select id="scoreMethod">
+          <option value="reconstruction" selected>重建误差</option>
+          <option value="mahalanobis">马氏距离</option>
+          <option value="euclidean">欧氏距离</option>
+          <option value="cosine">余弦距离</option>
+        </select>
+      </div>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-primary" id="trainBtn" style="flex:1;">训练模型</button>
+      <button class="btn btn-danger" id="resetBtn" style="flex:0 0 100px;">重置</button>
+    </div>
+    <div id="trainError" class="error-msg"></div>
+    <div id="trainResult" style="margin-top:12px;font-size:12px;color:var(--text-tertiary);display:none;"></div>
+  </div>
+
+  <!-- Step 2: Detection -->
+  <div class="card">
+    <h2>2. 异常检测</h2>
+    <div class="form-group">
+      <label>待检测图像</label>
+      <input type="file" id="detectFile" accept="image/png,image/jpeg,image/jpg,image/bmp,image/tiff">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>可视化模式</label>
+        <select id="vizMode">
+          <option value="overlay" selected>热力图叠加</option>
+          <option value="side_by_side">左右对比</option>
+          <option value="bbox">缺陷框标注</option>
+        </select>
+      </div>
+      <div class="form-group" id="bboxThresholdGroup">
+        <label>缺陷阈值</label>
+        <input type="number" id="bboxThreshold" value="0.5" min="0" max="1" step="0.05">
+      </div>
+    </div>
+    <button class="btn btn-primary" id="detectBtn" disabled>检测</button>
+    <div id="detectError" class="error-msg"></div>
+  </div>
+
+  <!-- Results -->
+  <div id="results" style="display:none;">
+    <div class="score-display">
+      <div class="score-value" id="scoreValue">0.0000</div>
+      <div class="score-label">异常分数</div>
+      <span class="score-status" id="scoreStatus">Normal</span>
+      <div style="margin-top:12px;font-size:12px;color:var(--text-secondary);">
+        阈值: <span id="thresholdLabel">0.30</span> &nbsp;|&nbsp; 推理时间: <span id="timeLabel">0</span>ms
+      </div>
+    </div>
+    <div class="result-grid">
+      <div class="result-card">
+        <div class="card-label">热力图</div>
+        <img id="heatmapImg" src="" alt="热力图">
+      </div>
+      <div class="result-card">
+        <div class="card-label">可视化结果</div>
+        <img id="vizImg" src="" alt="可视化结果">
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ===== Theme Toggle =====
+(function initTheme() {
+  var saved = localStorage.getItem('mesquare-theme');
+  if (saved) document.documentElement.setAttribute('data-theme', saved);
+  updateToggleIcon();
+})();
+
+function updateToggleIcon() {
+  var isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  document.getElementById('themeToggle').textContent = isDark ? '☀️' : '🌙';
+}
+
+document.getElementById('themeToggle').addEventListener('click', function() {
+  var isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+  var next = isDark ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('mesquare-theme', next);
+  updateToggleIcon();
+});
+
+var BASE = window.location.origin;
+
+// ===== File list display =====
+document.getElementById('trainFiles').addEventListener('change', function() {
+  document.getElementById('trainFileList').textContent = this.files.length + ' 个文件已选择';
+});
+
+// ===== Viz mode toggle =====
+document.getElementById('vizMode').addEventListener('change', function() {
+  document.getElementById('bboxThresholdGroup').style.display =
+    this.value === 'bbox' ? 'block' : 'none';
+});
+document.getElementById('vizMode').dispatchEvent(new Event('change'));
+
+// ===== Toast =====
+function showToast(msg) {
+  var toast = document.getElementById('toast');
+  toast.textContent = msg;
+  toast.classList.add('show');
+  setTimeout(function() { toast.classList.remove('show'); }, 2500);
+}
+
+// ===== Error helpers =====
+function showError(id, msg) {
+  var el = document.getElementById(id);
+  el.textContent = msg;
+  el.classList.add('show');
+}
+function hideError(id) {
+  document.getElementById(id).classList.remove('show');
+}
+
+// ===== Status =====
+function updateStatusBar(data) {
+  var bar = document.getElementById('statusBar');
+  var text = document.getElementById('statusText');
+  var deviceEl = document.getElementById('deviceInfo');
+  var detectBtn = document.getElementById('detectBtn');
+
+  if (data && data.is_trained) {
+    bar.className = 'status-bar trained';
+    var info = data.train_info || {};
+    text.textContent = '已训练 — PCA: ' + (info.pca_components || '?') + ' 维' +
+      ' | 特征: ' + (info.feature_dim || '?') +
+      ' | 分辨率: ' + (info.image_res || data.image_res || '?');
+    deviceEl.textContent = '设备: ' + (data.device || '?');
+    detectBtn.disabled = false;
+  } else {
+    bar.className = 'status-bar untrained';
+    text.textContent = '未训练 — 请先上传正常图像训练模型';
+    deviceEl.textContent = data ? '设备: ' + (data.device || '?') : '';
+    detectBtn.disabled = true;
+  }
+}
+
+async function checkStatus() {
+  try {
+    var resp = await fetch(BASE + '/api/status');
+    var data = await resp.json();
+    updateStatusBar(data);
+    return data;
+  } catch(e) {
+    console.warn('Status check failed:', e);
+    return null;
+  }
+}
+
+// ===== Train =====
+document.getElementById('trainBtn').addEventListener('click', async function() {
+  var files = document.getElementById('trainFiles').files;
+  if (files.length === 0) {
+    showError('trainError', '请选择至少一张正常图像');
+    return;
+  }
+
+  var formData = new FormData();
+  for (var i = 0; i < files.length; i++) {
+    formData.append('files', files[i]);
+  }
+  formData.append('image_res', parseInt(document.getElementById('imageRes').value));
+  formData.append('pca_ev', parseFloat(document.getElementById('pcaEv').value));
+  formData.append('score_method', document.getElementById('scoreMethod').value);
+
+  var btn = document.getElementById('trainBtn');
+  btn.disabled = true;
+  btn.classList.add('btn-loading');
+  btn.textContent = '';
+  hideError('trainError');
+  document.getElementById('trainResult').style.display = 'none';
+
+  try {
+    var resp = await fetch(BASE + '/api/train', { method: 'POST', body: formData });
+    var data = await resp.json();
+
+    if (!resp.ok) {
+      showError('trainError', data.detail || '训练失败');
+      showToast('训练失败');
+      return;
+    }
+
+    var resultEl = document.getElementById('trainResult');
+    resultEl.style.display = 'block';
+    resultEl.innerHTML = '训练成功！PCA 组件数: ' + data.pca_components +
+      ' | 特征维度: ' + data.feature_dim +
+      ' | 模板数: ' + data.num_templates +
+      ' | 耗时: ' + data.training_time_ms + 'ms';
+
+    showToast('训练完成');
+    await checkStatus();
+  } catch(e) {
+    showError('trainError', '网络错误: ' + e.message);
+    showToast('训练失败');
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('btn-loading');
+    btn.textContent = '训练模型';
+  }
+});
+
+// ===== Reset =====
+document.getElementById('resetBtn').addEventListener('click', async function() {
+  if (!confirm('确定要重置检测器吗？已训练的模型将被清除。')) return;
+
+  var btn = document.getElementById('resetBtn');
+  btn.disabled = true;
+  btn.textContent = '重置中...';
+
+  try {
+    var resp = await fetch(BASE + '/api/reset', { method: 'POST' });
+    var data = await resp.json();
+
+    if (resp.ok) {
+      await checkStatus();
+      document.getElementById('results').style.display = 'none';
+      showToast('已重置');
+    } else {
+      showToast(data.detail || '重置失败');
+    }
+  } catch(e) {
+    showToast('网络错误: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '重置';
+  }
+});
+
+// ===== Detect =====
+document.getElementById('detectBtn').addEventListener('click', async function() {
+  var fileInput = document.getElementById('detectFile');
+  if (!fileInput.files || !fileInput.files[0]) {
+    showError('detectError', '请选择待检测图像');
+    return;
+  }
+
+  var formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+  formData.append('viz_mode', document.getElementById('vizMode').value);
+  formData.append('return_heatmap', 'true');
+  formData.append('bbox_threshold', parseFloat(document.getElementById('bboxThreshold').value));
+
+  var btn = document.getElementById('detectBtn');
+  btn.disabled = true;
+  btn.classList.add('btn-loading');
+  btn.textContent = '';
+  hideError('detectError');
+
+  try {
+    var resp = await fetch(BASE + '/api/detect', { method: 'POST', body: formData });
+    var data = await resp.json();
+
+    if (!resp.ok) {
+      showError('detectError', data.detail || '检测失败');
+      showToast('检测失败');
+      return;
+    }
+
+    document.getElementById('results').style.display = 'block';
+
+    document.getElementById('scoreValue').textContent = data.anomaly_score.toFixed(4);
+    document.getElementById('thresholdLabel').textContent = data.threshold.toFixed(2);
+    document.getElementById('timeLabel').textContent = data.inference_time_ms;
+
+    var statusEl = document.getElementById('scoreStatus');
+    if (data.is_anomaly) {
+      statusEl.textContent = '异常 — ANOMALY';
+      statusEl.className = 'score-status anomaly';
+      showToast('检测到异常！分数: ' + data.anomaly_score.toFixed(4));
+    } else {
+      statusEl.textContent = '正常 — NORMAL';
+      statusEl.className = 'score-status normal';
+      showToast('正常，分数: ' + data.anomaly_score.toFixed(4));
+    }
+
+    if (data.heatmap) {
+      document.getElementById('heatmapImg').src = 'data:image/png;base64,' + data.heatmap;
+    }
+    if (data.visualization) {
+      document.getElementById('vizImg').src = 'data:image/png;base64,' + data.visualization;
+    }
+  } catch(e) {
+    showError('detectError', '网络错误: ' + e.message);
+    showToast('检测失败');
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('btn-loading');
+    btn.textContent = '检测';
+  }
+});
+
+// Initial status check
+checkStatus();
+</script>
+</body>
+</html>

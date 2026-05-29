@@ -31,7 +31,7 @@ docker run -d -p 8703:8703 subspacead
 
 ```bash
 pip install -r requirements.txt
-python main.py
+python api.py
 ```
 
 依赖：Python 3.8+，PyTorch 1.8+，transformers，OpenCV
@@ -136,27 +136,35 @@ python main.py
 
 ```
 SubspaceAD/
-├── main.py                       # FastAPI 服务入口
-├── subspace_anomaly_detector.py  # 核心检测器（可独立迁移）
-├── Dockerfile                    # Docker 构建文件
-├── requirements.txt              # Python 依赖
-├── static/
-│   └── index.html                # 可视化测试页面
-├── src/subspacead/               # 核心模块
-│   ├── core/
-│   │   ├── extractor.py          # DINOv2 特征提取
-│   │   ├── pca.py                # GPU 加速 PCA
-│   │   └── patching.py           # 图像分块
-│   ├── post_process/
-│   │   ├── scoring.py            # 异常分数计算
-│   │   └── specular.py           # 高光滤波
-│   └── utils/
-│       ├── common.py             # 通用工具
-│       └── viz.py                # 可视化工具
-├── models/dinov2-small/          # 本地 DINOv2 模型
-├── datas/                        # 测试数据
-├── CHANGELOG.md                  # 变更日志
-└── README.md                     # 本文档
+├── api.py                         # FastAPI 服务入口
+├── app/                           # 服务模块
+│   ├── main.py                    # FastAPI app 创建、中间件
+│   ├── config.py                  # 配置常量
+│   ├── schemas.py                 # Pydantic 模型
+│   ├── monitoring.py              # 监控/指标收集
+│   ├── routes.py                  # 路由处理器
+│   └── templates/
+│       └── index.html             # 可视化测试页面
+├── models/                        # 模型代码
+│   ├── detector.py               # 核心检测器
+│   └── subspacead/                # 核心模块
+│       ├── core/
+│       │   ├── extractor.py       # DINOv2 特征提取
+│       │   ├── pca.py             # GPU 加速 PCA
+│       │   └── patching.py        # 图像分块
+│       ├── post_process/
+│       │   ├── scoring.py         # 异常分数计算
+│       │   └── specular.py        # 高光滤波
+│       └── utils/
+│           ├── common.py          # 通用工具
+│           └── viz.py             # 可视化工具
+├── weights/                       # DINOv2 模型权重
+├── examples/                      # 测试数据
+├── deploy/
+│   └── Dockerfile
+├── requirements.txt
+├── CHANGELOG.md
+└── README.md
 ```
 
 ## 技术说明
@@ -164,7 +172,7 @@ SubspaceAD/
 - 基于 DINOv2 (Vision Transformer) 特征提取
 - GPU 加速的两遍式 PCA（均值 → 协方差 → 特征分解）
 - GPU 自动检测：有 CUDA 则用 GPU，否则退回 CPU
-- 已配置本地模型 `models/dinov2-small`，无需联网下载
+- 已配置本地模型 `weights/`，无需联网下载
 - 单文件上限：50 MB
 - 支持格式：PNG、JPG、JPEG、BMP、TIFF
 

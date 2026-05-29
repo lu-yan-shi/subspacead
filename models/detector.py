@@ -12,23 +12,12 @@ import numpy as np
 import cv2
 import torch
 
-# 导入核心组件 - 使用相对导入支持直接使用
-import sys
-from pathlib import Path
-
-# 获取当前文件所在目录
-current_dir = Path(__file__).parent
-src_dir = current_dir / "src"
-
-# 添加 src 到路径
-if str(src_dir) not in sys.path:
-    sys.path.insert(0, str(src_dir))
-
+# 导入核心组件
 try:
-    from subspacead.core.extractor import FeatureExtractor
-    from subspacead.core.pca import PCAModel
-    from subspacead.post_process.scoring import calculate_anomaly_scores
-    from subspacead.utils.common import min_max_norm
+    from .subspacead.core.extractor import FeatureExtractor
+    from .subspacead.core.pca import PCAModel
+    from .subspacead.post_process.scoring import calculate_anomaly_scores
+    from .subspacead.utils.common import min_max_norm
 except ImportError as e:
     raise ImportError(
         f"无法导入 subspacead 包。请确保文件结构完整。错误详情：{e}"
@@ -70,7 +59,7 @@ class SubspaceAnomalyDetector:
         
         Args:
             model_ckpt: DINOv2 模型路径或 HuggingFace 模型名
-                       如果为 None，默认使用本地 models/dinov2-small 目录
+                       如果为 None，默认使用本地 weights/ 目录
             image_res: 输入图像分辨率（正方形）
             pca_ev: PCA 保留方差比例 (0-1)
             device: 计算设备 ("cuda"/"cpu")，默认自动选择
@@ -82,7 +71,7 @@ class SubspaceAnomalyDetector:
         if model_ckpt is None:
             # 获取当前文件所在目录
             current_dir = Path(__file__).parent
-            local_model_path = current_dir / "models" / "dinov2-small"
+            local_model_path = current_dir.parent / "weights"
 
             if local_model_path.exists():
                 self.model_ckpt = str(local_model_path)
@@ -94,7 +83,7 @@ class SubspaceAnomalyDetector:
                     f"可从以下方式获取模型：\n"
                     f"  1. 从 HuggingFace 下载：\n"
                     f"     https://huggingface.co/facebook/dinov2-small/tree/main\n"
-                    f"  2. 从已经部署的服务器 / 其他机器复制 models/dinov2-small/ 目录\n"
+                    f"  2. 从已经部署的服务器 / 其他机器复制 weights/ 目录\n"
                     f"  3. 运行以下 Python 脚本自动下载：\n"
                     f"     from transformers import AutoModel, AutoImageProcessor\n"
                     f"     AutoModel.from_pretrained('facebook/dinov2-small', cache_dir='models')\n"
@@ -339,7 +328,7 @@ class SubspaceAnomalyDetector:
             if save_dir and save_visualizations:
                 # 保存自定义可视化结果（唯一需要的可视化）
                 try:
-                    from subspacead.utils.viz import save_custom_visualization
+                    from .subspacead.utils.viz import save_custom_visualization
                     viz_path = save_custom_visualization(
                         path=test_images[i] if isinstance(test_images[i], str) else f"image_{i}",
                         img=test_img,
@@ -486,7 +475,7 @@ def create_detector(
     快速创建检测器实例
 
     Args:
-        model: 模型路径，为 None 则使用本地 models/dinov2-small
+        model: 模型路径，为 None 则使用本地 weights/
         resolution: 分辨率
         **kwargs: 其他参数传递给 SubspaceAnomalyDetector
 

@@ -2,8 +2,8 @@ import numpy as np
 from subspacead.config import parse_layer_indices, parse_grouped_layers
 import logging
 import cv2
-from subspacead.core.extractor import FeatureExtractor
-from subspacead.post_process.scoring import calculate_anomaly_scores, post_process_map
+from .extractor import FeatureExtractor
+from ..post_process.scoring import calculate_anomaly_scores, post_process_map
 
 
 def get_patch_coords(image_height, image_width, patch_size, overlap):

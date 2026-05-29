@@ -25,14 +25,14 @@ RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && 
     pip install --no-cache-dir -r requirements.txt
 
 # ── 复制项目文件 ──
-COPY main.py subspace_anomaly_detector.py ./
-COPY src/ ./src/
+COPY api.py ./
+COPY app/ ./app/
 COPY models/ ./models/
-COPY static/ ./static/
+COPY weights/ ./weights/
 
 # ── 端口 ──
 # SubspaceAD 内部通过 torch.cuda.is_available() 自动选择设备
 ENV PORT=8703
 EXPOSE 8703
 
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8703"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8703"]

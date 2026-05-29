@@ -2,7 +2,7 @@
 SubspaceAnomalyDetector 快速使用示例
 """
 
-from subspace_anomaly_detector import SubspaceAnomalyDetector, create_detector
+from models.detector import SubspaceAnomalyDetector, create_detector
 
 
 def example_1_basic():
@@ -17,10 +17,10 @@ def example_1_basic():
     )
     
     # 训练
-    detector.train(["datas/template.jpg"])
+    detector.train(["examples/template.jpg"])
     
     # 检测
-    results = detector.detect(["datas/test-1.jpg", "datas/test-2.jpg"])
+    results = detector.detect(["examples/test-1.jpg", "examples/test-2.jpg"])
     
     for result in results:
         print(f"{result['image_name']}: {result['anomaly_score']:.4f}")
@@ -33,9 +33,9 @@ def example_2_quick():
     print("=" * 60)
     
     detector = create_detector(model=None, resolution=384)  # None 表示使用本地模型
-    detector.train(["datas/template.jpg"])
+    detector.train(["examples/template.jpg"])
     
-    score = detector.detect_single("datas/test-1.jpg")
+    score = detector.detect_single("examples/test-1.jpg")
     print(f"异常分数：{score:.4f}")
 
 
@@ -46,10 +46,10 @@ def example_3_heatmap():
     print("=" * 60)
     
     detector = SubspaceAnomalyDetector(image_res=384)
-    detector.train(["datas/template.jpg"])
+    detector.train(["examples/template.jpg"])
     
     score, heatmap = detector.detect_single(
-        "datas/test-1.jpg",
+        "examples/test-1.jpg",
         return_heatmap=True,
     )
     
@@ -64,10 +64,10 @@ def example_4_custom_threshold():
     print("=" * 60)
     
     detector = SubspaceAnomalyDetector(image_res=384)
-    detector.train(["datas/template.jpg"])
+    detector.train(["examples/template.jpg"])
     detector.set_threshold(0.25)
     
-    score = detector.detect_single("datas/test-1.jpg")
+    score = detector.detect_single("examples/test-1.jpg")
     is_anomaly = detector.is_anomaly(score)
     
     print(f"分数：{score:.4f}, 是否异常：{is_anomaly}")
@@ -81,14 +81,14 @@ def example_5_export_load():
     
     # 训练并导出
     detector1 = SubspaceAnomalyDetector(image_res=384)
-    detector1.train(["datas/template.jpg"])
+    detector1.train(["examples/template.jpg"])
     detector1.export_model("test_model.pth")
     
     # 加载并使用
     detector2 = SubspaceAnomalyDetector()
     detector2.load_model("test_model.pth")
     
-    results = detector2.detect(["datas/test-1.jpg"])
+    results = detector2.detect(["examples/test-1.jpg"])
     print(f"加载模型后的检测结果：{results[0]['anomaly_score']:.4f}")
     
     # 清理
@@ -109,7 +109,7 @@ if __name__ == "__main__":
         
     except FileNotFoundError as e:
         print(f"\n❌ 文件未找到：{e}")
-        print("请确保 datas/ 目录下有测试图像")
+        print("请确保 examples/ 目录下有测试图像")
     except Exception as e:
         print(f"\n❌ 错误：{e}")
         import traceback

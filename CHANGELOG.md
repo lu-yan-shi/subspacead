@@ -1,5 +1,43 @@
 # Changelog
 
+## [1.1.0] — 2026-05-29
+
+### Added
+- MeSquare v2 监控平台接入：双前缀架构（`/mse/*` 监控 + `/api/*` 业务）
+- `app/main.py`：FastAPI 应用工厂（lifespan、CORS、中间件、路由注册）
+- `app/config.py`：集中配置管理（SERVICE_NAME、MESQUARE_URL、BUSINESS_PREFIX 等）
+- `app/mse/`：标准监控模块
+  - `router.py`：`/mse/health`、`/mse/api-info`、`/mse/metrics`、`/mse/resources`、`/mse/endpoint-metrics`、`/mse/logs`、`/mse/notify-api-change`
+  - `metrics.py`：MetricsCollector + EndpointMetricsTracker + CpuSpikeMonitor
+  - `logging.py`：MemoryLogHandler 内存日志采集
+- `app/utils/webhook.py`：MeSquare webhook 通知器（启动/关闭/接口变更）
+- `app/api/routes.py`：业务端点拆分（`/api/train`、`/api/detect`、`/api/reset`、`/api/status`）
+
+### Changed
+- **破坏性变更**：业务端点前缀从 `/` 改为 `/api`
+  - `/train` → `/api/train`
+  - `/detect` → `/api/detect`
+  - `/reset` → `/api/reset`
+  - `/status` → `/api/status`
+- 前端 `app/templates/index.html` 迁移至 MeSquare 暗色主题框架，支持亮/暗主题切换
+- `api.py` 入口更新：`uvicorn.run("app.main:app", ...)`
+- Dockerfile CMD 更新：`uvicorn app.main:app`
+- 移除旧 `app/` 下的手写路由代码
+
+## [1.0.1] — 2026-05-29
+
+### Changed
+- 目录重组：遵循 AI-Project 标准模板
+  - `main.py` → `api.py`，服务代码拆分至 `app/`
+  - `subspace_anomaly_detector.py` → `models/detector.py`
+  - `src/subspacead/` → `models/subspacead/`
+  - `static/` → `app/templates/`
+  - `datas/` → `examples/`
+  - `models/dinov2-small/` → `weights/`
+  - `Dockerfile` → `deploy/Dockerfile`
+- 导入路径更新：移除 sys.path hack，使用相对导入
+- Dockerfile 更新 COPY 路径
+
 ## [1.0.0] — 2026-05-22
 
 ### Added
