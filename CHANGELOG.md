@@ -1,5 +1,11 @@
 # Changelog
 
+## [1.2.1] — 2026-06-01
+
+### Fixed
+- 修复 GPU 模式启动时前端仍显示 CPU 的问题：`/mse/health` 的 `get_gpu_info()` 增加 `torch.cuda.is_available()` fallback，解决 `pynvml` 未安装时 GPU 检测失效
+- requirements.txt 新增 `pynvml>=11.5.0`
+
 ## [1.2.0] — 2026-06-01
 
 ### Added

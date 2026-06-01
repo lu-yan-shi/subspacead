@@ -14,3 +14,4 @@ uvicorn
 python-multipart
 psutil
 httpx
+pynvml>=11.5.0

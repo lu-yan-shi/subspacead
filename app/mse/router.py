@@ -55,6 +55,12 @@ def get_gpu_info() -> dict | None:
             "gpu_memory_total_mb": round(info.total / 1024 ** 2, 1),
         }
     except Exception:
+        try:
+            import torch
+            if torch.cuda.is_available():
+                return {"gpu_utilization_percent": 0, "gpu_memory_used_mb": 0, "gpu_memory_total_mb": 0}
+        except Exception:
+            pass
         return None
 
 
