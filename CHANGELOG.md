@@ -5,6 +5,7 @@
 ### Fixed
 - 修复 GPU 模式启动时前端仍显示 CPU 的问题：`/mse/health` 的 `get_gpu_info()` 增加 `torch.cuda.is_available()` fallback，解决 `pynvml` 未安装时 GPU 检测失效
 - requirements.txt 新增 `pynvml>=11.5.0`
+- 修复 Docker CPU 构建失败：`libgl1-mesa-glx` 在 Debian trixie 中已移除，替换为 `libgl1`（同步修复 GPU Dockerfile）
 
 ## [1.2.0] — 2026-06-01
 
