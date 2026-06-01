@@ -4,25 +4,25 @@
 
 ---
 
-## Quick Start
+## 快速开始
 
-### GPU (requires NVIDIA GPU + nvidia-container-toolkit)
+### GPU 模式（需 NVIDIA GPU + nvidia-container-toolkit）
 
 ```bash
 docker-compose -f docker-compose.yml --profile gpu build
 docker-compose -f docker-compose.yml --profile gpu up -d
 ```
 
-### CPU
+### CPU 模式
 
 ```bash
 docker-compose -f docker-compose.yml --profile cpu build
 docker-compose -f docker-compose.yml --profile cpu up -d
 ```
 
-Open http://localhost:8703 — the status bar shows the current device (GPU/CPU).
+打开 http://localhost:8703 — 状态栏显示当前运行设备（GPU/CPU）。
 
-### Without Docker
+### 本地运行
 
 ```bash
 pip install torch torchvision
@@ -33,124 +33,124 @@ python api.py
 
 ---
 
-## API
+## API 接口
 
-### Interactive Tool (`GET /`)
+### 交互式工具（`GET /`）
 
-Open in browser for a visual testing page — upload normal images to train the PCA model, then detect anomalies on test images with heatmap overlay / side-by-side comparison / bounding box annotation.
+浏览器打开后可进行可视化测试 — 上传正常图像训练 PCA 模型，再对待测图像进行异常检测，支持热力图叠加、左右对比、缺陷框标注三种可视化模式。
 
-### Business Endpoints
+### 业务端点
 
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/train` | Train PCA subspace model with normal images |
-| POST | `/api/detect` | Detect anomalies on test image |
-| POST | `/api/reset` | Reset detector state |
-| GET | `/api/status` | View training status and model info |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/train` | 使用正常图像训练 PCA 子空间模型 |
+| POST | `/api/detect` | 对待测图像进行异常检测 |
+| POST | `/api/reset` | 重置检测器状态 |
+| GET | `/api/status` | 查看训练状态和模型信息 |
 
 #### `POST /api/train`
 
-**Request** (multipart/form-data):
+**请求格式**（multipart/form-data）：
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `files` | File[] | Yes | Normal images (1-2 images sufficient) |
-| `image_res` | int | No | Input resolution (default 512) |
-| `pca_ev` | float | No | PCA variance ratio 0-1 (default 0.99) |
-| `score_method` | string | No | Scoring method (default reconstruction) |
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `files` | File[] | 是 | 正常图像（1-2 张即可） |
+| `image_res` | int | 否 | 输入分辨率（默认 512） |
+| `pca_ev` | float | 否 | PCA 方差保留比例 0-1（默认 0.99） |
+| `score_method` | string | 否 | 评分方法（默认 reconstruction） |
 
 #### `POST /api/detect`
 
-**Request** (multipart/form-data):
+**请求格式**（multipart/form-data）：
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `file` | File | Yes | Test image |
-| `viz_mode` | string | No | overlay / side_by_side / bbox (default overlay) |
-| `return_heatmap` | bool | No | Return heatmap (default true) |
-| `bbox_threshold` | float | No | Defect threshold for bbox mode (default 0.5) |
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `file` | File | 是 | 待检测图像 |
+| `viz_mode` | string | 否 | overlay / side_by_side / bbox（默认 overlay） |
+| `return_heatmap` | bool | 否 | 是否返回热力图（默认 true） |
+| `bbox_threshold` | float | 否 | bbox 模式缺陷阈值（默认 0.5） |
 
-### Monitoring Endpoints
+### 监控端点
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/mse/health` | Health check |
-| GET | `/mse/api-info` | Service metadata |
-| GET | `/mse/metrics` | Request statistics |
-| GET | `/mse/resources` | CPU/memory/disk/GPU utilization |
-| GET | `/mse/endpoint-metrics` | Per-endpoint metrics |
-| GET | `/mse/logs` | Recent logs |
-
----
-
-## Scoring Methods
-
-| Method | Description | Best For |
-|--------|-------------|----------|
-| `reconstruction` (default) | PCA reconstruction error | General use |
-| `mahalanobis` | Mahalanobis distance | Higher sensitivity |
-| `euclidean` | Euclidean distance | Simplicity |
-| `cosine` | Cosine distance | Scale-invariant |
-
-## Visualization Modes
-
-| Mode | Description |
-|------|-------------|
-| `overlay` (default) | Heatmap overlay on original image |
-| `side_by_side` | Original + heatmap side by side |
-| `bbox` | Defect bounding box annotation |
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/mse/health` | 健康检查 |
+| GET | `/mse/api-info` | 服务元信息 |
+| GET | `/mse/metrics` | 请求统计 |
+| GET | `/mse/resources` | CPU/内存/磁盘/GPU 利用率 |
+| GET | `/mse/endpoint-metrics` | 各端点独立指标 |
+| GET | `/mse/logs` | 最近日志 |
 
 ---
 
-## Environment Variables
+## 评分方法
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `8703` | Service port |
-| `MESQUARE_URL` | `http://localhost:8000` | MeSquare platform URL |
-| `BUSINESS_PREFIX` | `/api` | Business endpoint prefix |
-| `DEFAULT_IMAGE_RES` | `512` | Default input resolution |
-| `DEFAULT_PCA_EV` | `0.99` | PCA variance ratio |
-| `DEFAULT_SCORE_METHOD` | `reconstruction` | Default scoring method |
+| 方法 | 说明 | 适用场景 |
+|------|------|----------|
+| `reconstruction`（默认） | PCA 重建误差 | 通用场景 |
+| `mahalanobis` | 马氏距离 | 对异常更敏感 |
+| `euclidean` | 欧氏距离 | 计算最简单 |
+| `cosine` | 余弦距离 | 对尺度不敏感 |
+
+## 可视化模式
+
+| 模式 | 说明 |
+|------|------|
+| `overlay`（默认） | 原图叠加热力图 |
+| `side_by_side` | 原图 + 热力图左右对比 |
+| `bbox` | 原图 + 缺陷框标注 |
 
 ---
 
-## Project Structure
+## 环境变量
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `PORT` | `8703` | 服务端口 |
+| `MESQUARE_URL` | `http://localhost:8000` | MeSquare 平台地址 |
+| `BUSINESS_PREFIX` | `/api` | 业务端点前缀 |
+| `DEFAULT_IMAGE_RES` | `512` | 默认输入分辨率 |
+| `DEFAULT_PCA_EV` | `0.99` | PCA 方差保留比例 |
+| `DEFAULT_SCORE_METHOD` | `reconstruction` | 默认评分方法 |
+
+---
+
+## 项目结构
 
 ```
 SubspaceAD/
-├── api.py                       # Service entry point
+├── api.py                       # 服务入口
 ├── app/
-│   ├── main.py                  # FastAPI app factory (lifespan, middleware, CORS)
-│   ├── config.py                # Centralized configuration
+│   ├── main.py                  # FastAPI 应用工厂（lifespan、中间件、CORS）
+│   ├── config.py                # 集中配置管理
 │   ├── mse/
-│   │   ├── router.py            # /mse/* monitoring endpoints
+│   │   ├── router.py            # /mse/* 监控端点
 │   │   ├── metrics.py           # MetricsCollector + EndpointMetricsTracker + CpuSpikeMonitor
-│   │   └── logging.py           # MemoryLogHandler + log capture
+│   │   └── logging.py           # MemoryLogHandler + 日志采集
 │   ├── api/
-│   │   └── routes.py            # Business endpoints (/api/train, /api/detect, /api/reset, /api/status)
+│   │   └── routes.py            # 业务端点（/api/train、/api/detect、/api/reset、/api/status）
 │   ├── utils/
-│   │   └── webhook.py           # MeSquare webhook notifier
+│   │   └── webhook.py           # MeSquare webhook 通知器
 │   └── templates/
-│       └── index.html           # Visual testing page
+│       └── index.html           # 可视化测试页面
 ├── models/
-│   ├── detector.py              # SubspaceAnomalyDetector wrapper
-│   └── subspacead/              # Core algorithm modules
+│   ├── detector.py              # SubspaceAnomalyDetector 封装类
+│   └── subspacead/              # 核心算法模块
 │       ├── core/
-│       │   ├── extractor.py     # DINOv2 feature extraction
-│       │   ├── pca.py           # GPU-accelerated PCA
-│       │   └── patching.py      # Image patching
+│       │   ├── extractor.py     # DINOv2 特征提取
+│       │   ├── pca.py           # GPU 加速 PCA
+│       │   └── patching.py      # 图像分块
 │       ├── post_process/
-│       │   ├── scoring.py       # Anomaly score calculation
-│       │   └── specular.py      # Specular highlight filter
+│       │   ├── scoring.py       # 异常分数计算
+│       │   └── specular.py      # 高光滤波
 │       └── utils/
-│           ├── common.py        # Common utilities
-│           └── viz.py           # Visualization utilities
-├── weights/                     # DINOv2 model weights
-├── examples/                    # Test data
+│           ├── common.py        # 通用工具
+│           └── viz.py           # 可视化工具
+├── weights/                     # DINOv2 模型权重
+├── examples/                    # 测试数据
 ├── deploy/
-│   ├── Dockerfile.gpu           # GPU image (CUDA 12.6)
-│   └── Dockerfile.cpu           # CPU image (PyTorch CPU)
+│   ├── Dockerfile.gpu           # GPU 镜像（CUDA 12.6）
+│   └── Dockerfile.cpu           # CPU 镜像（PyTorch CPU）
 ├── docker-compose.yml           # Compose profiles: gpu / cpu
 ├── requirements.txt
 └── README.md
@@ -158,6 +158,6 @@ SubspaceAD/
 
 ---
 
-## License
+## 许可
 
 MIT License
