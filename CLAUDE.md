@@ -67,9 +67,11 @@ print(f'Score: {score:.4f}')
 ## Docker
 
 ```bash
-# 构建
-docker build -t subspacead -f deploy/Dockerfile .
+# GPU
+docker-compose -f docker-compose.yml --profile gpu build
+docker-compose -f docker-compose.yml --profile gpu up -d
 
-# 运行
-docker run --gpus all -p 8703:8703 subspacead
+# CPU
+docker-compose -f docker-compose.yml --profile cpu build
+docker-compose -f docker-compose.yml --profile cpu up -d
 ```

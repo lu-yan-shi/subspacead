@@ -1,181 +1,163 @@
 # SubspaceAD
 
-基于 DINOv2 特征和 PCA 子空间建模的少样本异常检测服务。提供 FastAPI 接口和可视化测试页面，专为工业质检场景设计。
+基于 DINOv2 特征和 PCA 子空间建模的少样本异常检测服务，专为工业质检场景设计。仅需 1-2 张正常图像即可训练，支持多种评分方法和可视化模式。
 
-## 特性
+---
 
-- **少样本学习** — 仅需 1-2 张正常图像即可训练
-- **DINOv2 特征提取** — 基于 Vision Transformer 的自监督特征
-- **PCA 子空间建模** — GPU 加速的两遍式流式 PCA
-- **四种评分方法** — 重建误差、马氏距离、欧氏距离、余弦距离
-- **三种可视化模式** — 热力图叠加、左右对比、缺陷框标注
-- **参数可调** — 分辨率、PCA 方差比、评分方法均可调节
-- **开箱即用** — 已配置本地模型 (DINOv2-small)
+## Quick Start
 
-## 快速开始
-
-### Docker（推荐）
+### GPU (requires NVIDIA GPU + nvidia-container-toolkit)
 
 ```bash
-# GPU 模式
-docker build -t subspacead .
-docker run -d --gpus all -p 8703:8703 subspacead
-
-# CPU 模式
-docker run -d -p 8703:8703 subspacead
+docker-compose -f docker-compose.yml --profile gpu build
+docker-compose -f docker-compose.yml --profile gpu up -d
 ```
 
-打开 http://localhost:8703 进入测试页面。
-
-### 本地运行
+### CPU
 
 ```bash
+docker-compose -f docker-compose.yml --profile cpu build
+docker-compose -f docker-compose.yml --profile cpu up -d
+```
+
+Open http://localhost:8703 — the status bar shows the current device (GPU/CPU).
+
+### Without Docker
+
+```bash
+pip install torch torchvision
 pip install -r requirements.txt
 python api.py
+# → http://localhost:8703
 ```
 
-依赖：Python 3.8+，PyTorch 1.8+，transformers，OpenCV
+---
 
-## API 文档
+## API
 
-启动后访问 http://localhost:8703/docs 查看 Swagger UI。
+### Interactive Tool (`GET /`)
 
-### POST /train
+Open in browser for a visual testing page — upload normal images to train the PCA model, then detect anomalies on test images with heatmap overlay / side-by-side comparison / bounding box annotation.
 
-训练 PCA 子空间模型。
+### Business Endpoints
 
-**请求格式：** `multipart/form-data`
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/train` | Train PCA subspace model with normal images |
+| POST | `/api/detect` | Detect anomalies on test image |
+| POST | `/api/reset` | Reset detector state |
+| GET | `/api/status` | View training status and model info |
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `files` | File[] | 是 | 正常图像（无缺陷的模板图，1 张即可） |
-| `image_res` | int | 否 | 输入分辨率（默认 512） |
-| `pca_ev` | float | 否 | PCA 保留方差比例 0-1（默认 0.99） |
-| `score_method` | string | 否 | 评分方法（默认 reconstruction） |
+#### `POST /api/train`
 
-**响应：**
+**Request** (multipart/form-data):
 
-```json
-{
-  "success": true,
-  "pca_components": 45,
-  "feature_dim": 768,
-  "grid_size": [32, 32],
-  "num_templates": 2,
-  "training_time_ms": 5123
-}
-```
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `files` | File[] | Yes | Normal images (1-2 images sufficient) |
+| `image_res` | int | No | Input resolution (default 512) |
+| `pca_ev` | float | No | PCA variance ratio 0-1 (default 0.99) |
+| `score_method` | string | No | Scoring method (default reconstruction) |
 
-### POST /detect
+#### `POST /api/detect`
 
-对上传图像进行异常检测。**需要先调用 /train。**
+**Request** (multipart/form-data):
 
-**请求格式：** `multipart/form-data`
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `file` | File | Yes | Test image |
+| `viz_mode` | string | No | overlay / side_by_side / bbox (default overlay) |
+| `return_heatmap` | bool | No | Return heatmap (default true) |
+| `bbox_threshold` | float | No | Defect threshold for bbox mode (default 0.5) |
 
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `file` | File | 是 | 待检测图像 |
-| `viz_mode` | string | 否 | 可视化模式（默认 overlay） |
-| `return_heatmap` | bool | 否 | 是否返回热力图（默认 true） |
-| `bbox_threshold` | float | 否 | 缺陷检测阈值（仅 bbox 模式，默认 0.5） |
+### Monitoring Endpoints
 
-**响应：**
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/mse/health` | Health check |
+| GET | `/mse/api-info` | Service metadata |
+| GET | `/mse/metrics` | Request statistics |
+| GET | `/mse/resources` | CPU/memory/disk/GPU utilization |
+| GET | `/mse/endpoint-metrics` | Per-endpoint metrics |
+| GET | `/mse/logs` | Recent logs |
 
-```json
-{
-  "success": true,
-  "anomaly_score": 0.8732,
-  "is_anomaly": true,
-  "threshold": 0.3,
-  "inference_time_ms": 312,
-  "heatmap": "base64...",
-  "visualization": "base64...",
-  "viz_mode": "overlay"
-}
-```
+---
 
-### 监控端点
+## Scoring Methods
 
-| 路径 | 说明 |
-|------|------|
-| `GET /health` | 健康检查 |
-| `GET /api-info` | 服务元信息 |
-| `GET /metrics` | 请求统计 |
-| `GET /resources` | 资源利用率（CPU/内存/磁盘/GPU） |
-| `GET /endpoint-metrics` | 各端点统计 |
-| `GET /logs` | 服务日志 |
-| `GET /status` | 检测器状态 |
+| Method | Description | Best For |
+|--------|-------------|----------|
+| `reconstruction` (default) | PCA reconstruction error | General use |
+| `mahalanobis` | Mahalanobis distance | Higher sensitivity |
+| `euclidean` | Euclidean distance | Simplicity |
+| `cosine` | Cosine distance | Scale-invariant |
 
-## 可视化模式
+## Visualization Modes
 
-| 模式 | 说明 | 适用场景 |
-|------|------|----------|
-| `overlay`（默认） | 原图叠加热力图 | 直观显示缺陷位置 |
-| `side_by_side` | 左边原图，右边叠加 | 对比观察变化 |
-| `bbox` | 原图 + 红色缺陷框 | 报告展示、快速定位 |
+| Mode | Description |
+|------|-------------|
+| `overlay` (default) | Heatmap overlay on original image |
+| `side_by_side` | Original + heatmap side by side |
+| `bbox` | Defect bounding box annotation |
 
-## 评分方法
+---
 
-| 方法 | 说明 | 特点 |
-|------|------|------|
-| `reconstruction`（默认） | PCA 重建误差 | 通用场景 |
-| `mahalanobis` | 马氏距离 | 对异常更敏感 |
-| `euclidean` | 欧氏距离 | 计算最简单 |
-| `cosine` | 余弦距离 | 对尺度不敏感 |
+## Environment Variables
 
-## 参数调优
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8703` | Service port |
+| `MESQUARE_URL` | `http://localhost:8000` | MeSquare platform URL |
+| `BUSINESS_PREFIX` | `/api` | Business endpoint prefix |
+| `DEFAULT_IMAGE_RES` | `512` | Default input resolution |
+| `DEFAULT_PCA_EV` | `0.99` | PCA variance ratio |
+| `DEFAULT_SCORE_METHOD` | `reconstruction` | Default scoring method |
 
-| 参数 | 作用 | 建议 |
-|------|------|------|
-| `image_res` | 输入分辨率 | 256-384 快速，512-768 精细 |
-| `pca_ev` | PCA 方差保留比例 | 0.95-0.99，越高保留细节越多 |
-| `score_method` | 评分方法 | reconstruction 通用，mahalanobis 更敏感 |
-| 异常阈值 | 判断是否异常（默认 0.3） | 严格 0.2，宽松 0.5 |
+---
 
-## 项目结构
+## Project Structure
 
 ```
 SubspaceAD/
-├── api.py                         # FastAPI 服务入口
-├── app/                           # 服务模块
-│   ├── main.py                    # FastAPI app 创建、中间件
-│   ├── config.py                  # 配置常量
-│   ├── schemas.py                 # Pydantic 模型
-│   ├── monitoring.py              # 监控/指标收集
-│   ├── routes.py                  # 路由处理器
+├── api.py                       # Service entry point
+├── app/
+│   ├── main.py                  # FastAPI app factory (lifespan, middleware, CORS)
+│   ├── config.py                # Centralized configuration
+│   ├── mse/
+│   │   ├── router.py            # /mse/* monitoring endpoints
+│   │   ├── metrics.py           # MetricsCollector + EndpointMetricsTracker + CpuSpikeMonitor
+│   │   └── logging.py           # MemoryLogHandler + log capture
+│   ├── api/
+│   │   └── routes.py            # Business endpoints (/api/train, /api/detect, /api/reset, /api/status)
+│   ├── utils/
+│   │   └── webhook.py           # MeSquare webhook notifier
 │   └── templates/
-│       └── index.html             # 可视化测试页面
-├── models/                        # 模型代码
-│   ├── detector.py               # 核心检测器
-│   └── subspacead/                # 核心模块
+│       └── index.html           # Visual testing page
+├── models/
+│   ├── detector.py              # SubspaceAnomalyDetector wrapper
+│   └── subspacead/              # Core algorithm modules
 │       ├── core/
-│       │   ├── extractor.py       # DINOv2 特征提取
-│       │   ├── pca.py             # GPU 加速 PCA
-│       │   └── patching.py        # 图像分块
+│       │   ├── extractor.py     # DINOv2 feature extraction
+│       │   ├── pca.py           # GPU-accelerated PCA
+│       │   └── patching.py      # Image patching
 │       ├── post_process/
-│       │   ├── scoring.py         # 异常分数计算
-│       │   └── specular.py        # 高光滤波
+│       │   ├── scoring.py       # Anomaly score calculation
+│       │   └── specular.py      # Specular highlight filter
 │       └── utils/
-│           ├── common.py          # 通用工具
-│           └── viz.py             # 可视化工具
-├── weights/                       # DINOv2 模型权重
-├── examples/                      # 测试数据
+│           ├── common.py        # Common utilities
+│           └── viz.py           # Visualization utilities
+├── weights/                     # DINOv2 model weights
+├── examples/                    # Test data
 ├── deploy/
-│   └── Dockerfile
+│   ├── Dockerfile.gpu           # GPU image (CUDA 12.6)
+│   └── Dockerfile.cpu           # CPU image (PyTorch CPU)
+├── docker-compose.yml           # Compose profiles: gpu / cpu
 ├── requirements.txt
-├── CHANGELOG.md
 └── README.md
 ```
 
-## 技术说明
+---
 
-- 基于 DINOv2 (Vision Transformer) 特征提取
-- GPU 加速的两遍式 PCA（均值 → 协方差 → 特征分解）
-- GPU 自动检测：有 CUDA 则用 GPU，否则退回 CPU
-- 已配置本地模型 `weights/`，无需联网下载
-- 单文件上限：50 MB
-- 支持格式：PNG、JPG、JPEG、BMP、TIFF
-
-## 许可
+## License
 
 MIT License

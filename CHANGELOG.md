@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.2.0] — 2026-06-01
+
+### Added
+- 前端状态栏已有 GPU/CPU 设备信息显示（来自 `/api/status`）
+
+### Changed
+- Docker 基础镜像统一升级至 CUDA 12.6（`pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime`）
+- Docker 镜像拆分为 GPU/CPU 两个版本（`Dockerfile.gpu` + `Dockerfile.cpu`）
+- 新增 `docker-compose.yml`，支持 `--profile gpu/cpu` 构建和启动
+- requirements.txt 新增 `httpx`（webhook 依赖）
+- README 统一为 docker-compose 构建/启动命令，补充环境和参数说明
+
 ## [1.1.0] — 2026-05-29
 
 ### Added
