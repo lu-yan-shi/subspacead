@@ -7,7 +7,7 @@ from typing import FrozenSet, List
 SERVICE_NAME = "SubspaceAD"
 SERVICE_VERSION = "1.0.0"
 SERVICE_DESCRIPTION = "基于 DINOv2 + PCA 子空间建模的少样本异常检测服务"
-SERVICE_PORT = int(os.environ.get("PORT", 8703))
+SERVICE_PORT = int(os.environ.get("PORT", 8704))
 
 BUSINESS_PREFIX = os.environ.get("BUSINESS_PREFIX", "/api")
 

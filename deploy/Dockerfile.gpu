@@ -5,8 +5,8 @@
 #   docker build -t subspacead .
 #
 # 运行:
-#   GPU: docker run --gpus all -p 8703:8703 subspacead
-#   CPU: docker run -p 8703:8703 subspacead
+#   GPU: docker run --gpus all -p 8704:8704 subspacead
+#   CPU: docker run -p 8704:8704 subspacead
 # ============================================================
 
 FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
@@ -22,6 +22,6 @@ RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r re
 
 COPY . .
 
-EXPOSE 8703
+EXPOSE 8704
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8703"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8704"]

@@ -20,7 +20,7 @@ docker-compose -f docker-compose.yml --profile cpu build
 docker-compose -f docker-compose.yml --profile cpu up -d
 ```
 
-打开 http://localhost:8703 — 状态栏显示当前运行设备（GPU/CPU）。
+打开 http://localhost:8704 — 状态栏显示当前运行设备（GPU/CPU）。
 
 ### 本地运行
 
@@ -28,7 +28,7 @@ docker-compose -f docker-compose.yml --profile cpu up -d
 pip install torch torchvision
 pip install -r requirements.txt
 python api.py
-# → http://localhost:8703
+# → http://localhost:8704
 ```
 
 ---
@@ -106,7 +106,7 @@ python api.py
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `PORT` | `8703` | 服务端口 |
+| `PORT` | `8704` | 服务端口 |
 | `MESQUARE_URL` | `http://localhost:8000` | MeSquare 平台地址 |
 | `BUSINESS_PREFIX` | `/api` | 业务端点前缀 |
 | `DEFAULT_IMAGE_RES` | `512` | 默认输入分辨率 |

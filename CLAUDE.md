@@ -15,7 +15,7 @@ pip install -r requirements.txt
 
 # 启动服务
 python api.py
-# → http://localhost:8703
+# → http://localhost:8704
 
 # CLI 测试
 python -c "
@@ -56,7 +56,7 @@ print(f'Score: {score:.4f}')
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `PORT` | `8703` | 服务端口 |
+| `PORT` | `8704` | 服务端口 |
 | `HOST` | `0.0.0.0` | 绑定地址 |
 | `MESQUARE_URL` | `http://localhost:8000` | MeSquare 平台地址 |
 | `BUSINESS_PREFIX` | `/api` | 业务端点前缀 |

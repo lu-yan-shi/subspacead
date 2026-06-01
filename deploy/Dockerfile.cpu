@@ -12,6 +12,6 @@ RUN pip install --no-cache-dir torch torchvision --index-url https://download.py
 
 COPY . .
 
-EXPOSE 8703
+EXPOSE 8704
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8703"]
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8704"]

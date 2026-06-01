@@ -7,7 +7,7 @@ services:
       dockerfile: deploy/Dockerfile.gpu
     image: subspacead:gpu
     ports:
-      - "8703:8703"
+      - "8704:8704"
     deploy:
       resources:
         reservations:
@@ -25,5 +25,5 @@ services:
       dockerfile: deploy/Dockerfile.cpu
     image: subspacead:cpu
     ports:
-      - "8703:8703"
+      - "8704:8704"
     restart: unless-stopped
