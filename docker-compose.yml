@@ -1,0 +1,29 @@
+services:
+  subspacead-gpu:
+    profiles: ["gpu"]
+    container_name: subspacead-gpu
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.gpu
+    image: subspacead:gpu
+    ports:
+      - "8703:8703"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+  subspacead-cpu:
+    profiles: ["cpu"]
+    container_name: subspacead-cpu
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.cpu
+    image: subspacead:cpu
+    ports:
+      - "8703:8703"
+    restart: unless-stopped
