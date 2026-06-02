@@ -99,8 +99,8 @@ def create_app() -> FastAPI:
 
     @app.get("/", summary="Root", tags=["General"])
     async def root():
-        templates_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "templates")
-        return FileResponse(os.path.join(templates_dir, "index.html"))
+        frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
+        return FileResponse(os.path.join(frontend_dir, "index.html"))
 
     from .mse.router import mse_router
     app.include_router(mse_router)

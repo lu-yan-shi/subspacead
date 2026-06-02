@@ -8,17 +8,9 @@ import psutil
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
 
-from ..config import (
-    CAPABILITIES,
-    MAX_FILE_SIZE_MB,
-    MESQUARE_BASE_URL,
-    SERVICE_DESCRIPTION,
-    SERVICE_NAME,
-    SERVICE_PORT,
-    SUPPORTED_FORMATS,
-)
-from ..utils.webhook import SERVER_HOST, notify_mesquare_api_change
-from .logging import _log_buffer, get_recent_logs
+from .. import config
+from ..utils.webhook import notify_mesquare_api_change
+from .logging import get_recent_logs
 
 
 mse_router = APIRouter(prefix="/mse", tags=["MeSquare Monitoring"])
@@ -70,31 +62,25 @@ async def health(request: Request):
 
     components = {}
 
-    detector = request.app.state.detector
-    if detector is not None and detector.extractor is not None:
+    # Model: detector object exists = DINOv2 weights loaded successfully at startup
+    detector = getattr(request.app.state, "detector", None)
+    if detector is not None:
         components["model"] = "healthy"
-    elif detector is not None:
-        components["model"] = "degraded"
     else:
         components["model"] = "down"
 
-    if request.app.state.is_trained:
+    # PCA: training state — not required for service to be alive, but needed for /api/detect
+    if getattr(request.app.state, "is_trained", False):
         components["pca"] = "healthy"
     else:
         components["pca"] = "degraded"
 
-    PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    try:
-        storage_path = os.environ.get("STORAGE_PATH", PROJECT_ROOT)
-        if os.path.isdir(storage_path) and os.access(storage_path, os.W_OK):
-            components["storage"] = "healthy"
-        else:
-            components["storage"] = "degraded"
-    except Exception:
-        components["storage"] = "down"
-
+    # GPU: real dependency for inference performance
     gpu_info = get_gpu_info()
-    components["gpu"] = "healthy" if gpu_info is not None else "not_applicable"
+    if gpu_info is not None:
+        components["gpu"] = "healthy"
+    else:
+        components["gpu"] = "degraded"
 
     statuses = list(components.values())
     if "down" in statuses:
@@ -115,14 +101,14 @@ async def health(request: Request):
 @mse_router.get("/api-info", summary="Service Metadata")
 async def api_info():
     return {
-        "name": SERVICE_NAME,
-        "version": SERVICE_VERSION,
-        "description": SERVICE_DESCRIPTION,
-        "server_host": SERVER_HOST,
-        "server_port": SERVICE_PORT,
-        "capabilities": CAPABILITIES,
-        "supported_formats": SUPPORTED_FORMATS,
-        "max_file_size_mb": MAX_FILE_SIZE_MB,
+        "name": getattr(config, "SERVICE_NAME", "unknown-service"),
+        "version": getattr(config, "SERVICE_VERSION", "1.0.0"),
+        "description": getattr(config, "SERVICE_DESCRIPTION", ""),
+        "server_host": getattr(config, "SERVER_HOST", ""),
+        "server_port": getattr(config, "SERVICE_PORT", None),
+        "capabilities": getattr(config, "CAPABILITIES", []),
+        "supported_formats": getattr(config, "SUPPORTED_FORMATS", []),
+        "max_file_size_mb": getattr(config, "MAX_FILE_SIZE_MB", None),
     }
 
 
@@ -134,7 +120,7 @@ async def metrics(request: Request):
 @mse_router.get("/resources", summary="Resource Utilization")
 async def resources(request: Request):
     cpu_monitor = request.app.state.cpu_monitor
-    process = psutil.Process()
+    process = psutil.Process(os.getpid())
     cpu_count = psutil.cpu_count() or 1
 
     raw_cpu = process.cpu_percent(interval=0.1)
@@ -183,5 +169,5 @@ async def trigger_notify(req: NotifyRequest = NotifyRequest()):
     return {
         "status": "sent",
         "event": req.event,
-        "mesquare_url": MESQUARE_BASE_URL,
+        "mesquare_url": config.MESQUARE_BASE_URL,
     }
