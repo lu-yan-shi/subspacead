@@ -20,6 +20,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
 
+# 提前拷贝模型下载器 + Token，构建时预下载
+COPY models/model_downloader.py ./models/model_downloader.py
+COPY ModelScope_token ./ModelScope_token
+RUN mkdir -p /app/weights && \
+    python -c "from models.model_downloader import ensure_weights; ensure_weights()"
+
+# 其余代码（改代码只重建这一层，不重下载模型）
 COPY . .
 
 EXPOSE 8704

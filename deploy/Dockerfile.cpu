@@ -6,10 +6,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+# Install CPU-only PyTorch first
 RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
 
+# Install remaining deps (skip torch/torchvision)
+COPY requirements.txt .
+RUN sed -i '/^torch/d; /^torchvision/d' requirements.txt && \
+    pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+
+# 提前拷贝模型下载器 + Token，构建时预下载
+COPY models/model_downloader.py ./models/model_downloader.py
+COPY ModelScope_token ./ModelScope_token
+RUN mkdir -p /app/weights && \
+    python -c "from models.model_downloader import ensure_weights; ensure_weights()"
+
+# 其余代码
 COPY . .
 
 EXPOSE 8704

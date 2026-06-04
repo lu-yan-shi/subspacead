@@ -4,3 +4,7 @@ __pycache__
 .gitignore
 *.md
 datas/
+.gitattributes
+weights/*.bin
+weights/*.safetensors
+weights/*.pt

@@ -15,3 +15,6 @@ python-multipart
 psutil
 httpx
 pynvml>=11.5.0
+
+# ModelScope — 自动下载模型权重
+modelscope>=1.0.0
