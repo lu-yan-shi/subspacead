@@ -90,13 +90,13 @@ body {
 
 /* Floating collapse arrow at right edge of sidebar */
 .sb-arrow {
-  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
-  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
-  font-size: 12px; color: var(--text3); cursor: pointer; border: 1px solid transparent;
-  border-radius: 6px; transition: all 0.18s ease; z-index: 3; background: transparent;
+  position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
+  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
+  font-size: 17px; color: var(--text3); cursor: pointer; border: 1px solid var(--border);
+  border-radius: 8px; transition: all 0.18s ease; z-index: 3; background: var(--surface2);
   line-height: 1;
 }
-.sb-arrow:hover { color: var(--cyan); background: var(--surface2); border-color: var(--border); }
+.sb-arrow:hover { color: var(--cyan); background: var(--cyan-dim); border-color: var(--cyan); }
 .sidebar.collapsed .sb-arrow { right: 50%; transform: translate(50%, -50%); }
 .sidebar .nav-group { padding: 0 10px; }
 .sidebar .nav-label {
@@ -115,23 +115,12 @@ body {
 .sidebar .nav-item .nav-icon { font-size: 15px; width: 22px; text-align: center; opacity: 0.75; flex-shrink: 0; }
 .sidebar .nav-item.active .nav-icon { opacity: 1; }
 
-/* Sidebar collapse toggle */
-.sidebar-toggle {
-  display: flex; align-items: center; gap: 10px; margin: 0 10px 6px; padding: 9px 12px;
-  font-size: 14px; color: var(--text2); cursor: pointer; border: 1px solid transparent;
-  border-radius: 6px; transition: all 0.18s ease; user-select: none; white-space: nowrap;
-}
-.sidebar-toggle:hover { color: var(--text); background: var(--surface2); border-color: var(--border); }
-.sidebar-toggle .st-icon { font-size: 13px; width: 22px; text-align: center; flex-shrink: 0; }
-
 /* Collapsed: icon rail */
 .sidebar.collapsed { width: 52px; }
-.sidebar.collapsed .sidebar-toggle { justify-content: center; margin: 0 6px 6px; padding: 9px 0; }
 .sidebar.collapsed .nav-group { padding: 0 6px; }
 .sidebar.collapsed .nav-item { justify-content: center; padding: 9px 0; gap: 0; }
 .sidebar.collapsed .nav-label,
-.sidebar.collapsed .nav-txt,
-.sidebar.collapsed .st-txt { display: none; }
+.sidebar.collapsed .nav-txt { display: none; }
 
 /* Main content area */
 .main-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
@@ -483,10 +472,6 @@ select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px var
 
   <!-- ===== SIDEBAR ===== -->
   <div class="sidebar" id="sidebar">
-    <div class="sidebar-toggle" id="sidebarToggle" title="收起菜单">
-      <span class="st-icon">«</span>
-      <span class="st-txt">收起</span>
-    </div>
     <div class="sb-arrow" id="sbArrow" title="收起菜单">«</div>
     <div class="nav-group">
       <div class="nav-label">主菜单</div>
@@ -884,14 +869,8 @@ document.querySelectorAll('.sidebar .nav-item').forEach(function (n) {
 // Sidebar collapse / expand
 var SIDEBAR_KEY = 'subspacead-sidebar-collapsed';
 function updateSidebarToggle() {
-  var sb = $id('sidebar'), t = $id('sidebarToggle'), ar = $id('sbArrow');
+  var sb = $id('sidebar'), ar = $id('sbArrow');
   var c = sb && sb.classList.contains('collapsed');
-  if (t) {
-    t.title = c ? '展开菜单' : '收起菜单';
-    var ic = t.querySelector('.st-icon'), tx = t.querySelector('.st-txt');
-    if (ic) ic.textContent = c ? '»' : '«';
-    if (tx) tx.textContent = c ? '展开' : '收起';
-  }
   if (ar) {
     ar.title = c ? '展开菜单' : '收起菜单';
     ar.textContent = c ? '»' : '«';
@@ -903,7 +882,6 @@ function toggleSidebar() {
   try { if (c) localStorage.setItem(SIDEBAR_KEY, '1'); else localStorage.removeItem(SIDEBAR_KEY); } catch (e) {}
   updateSidebarToggle();
 }
-$id('sidebarToggle').addEventListener('click', toggleSidebar);
 $id('sbArrow').addEventListener('click', toggleSidebar);
 (function initSidebar() {
   try { if (localStorage.getItem(SIDEBAR_KEY) === '1') $id('sidebar').classList.add('collapsed'); } catch (e) {}
