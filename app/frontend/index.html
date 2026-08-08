@@ -415,8 +415,6 @@ select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 1px var
   <div class="sep"></div>
   <div class="metric">设备 <b id="topDevice">--</b></div>
   <div class="sep"></div>
-  <div class="metric">分辨率 <b id="topRes">--</b></div>
-  <div class="sep"></div>
   <div class="metric">记忆库 <b id="topMem">--</b></div>
   <div class="push"></div>
   <div class="metric" id="topClock">--</div>
@@ -1444,7 +1442,6 @@ function refreshAnalytics() {
 // INIT
 // ============================================================
 checkStatus();
-loadModelSelect(); // 独立触发模型下拉框，不依赖 checkStatus 内部 try 块走完
 hashToPage();
 refreshRecentTable();
 </script>
