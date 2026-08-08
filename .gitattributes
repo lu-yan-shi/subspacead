@@ -1,1 +1,4 @@
 # 模型已迁移到 ModelScope，不再使用 LFS
+
+# 脚本必须保持 LF，否则 Docker 镜像内 shebang 变 /bin/bash\r 导致 exec 失败
+*.sh text eol=lf
