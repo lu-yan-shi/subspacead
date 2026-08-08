@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import os
 import traceback
 from pathlib import Path
@@ -223,9 +224,16 @@ class SubspaceAnomalyDetector:
         self.pipeline: Optional[DuoADPipeline] = None
         self.prompt_features: Optional[torch.Tensor] = None  # memory bank
         self.is_trained = False
-        # 默认阈值按「原始异常图 top-k 均值」口径标定：自匹配≈0，不同/缺陷图≈0.1+
-        # （旧 0.3 是针对 min-max 归一化分数的，修复评分口径后需同步下调）
-        self.threshold: float = 0.1
+        # 分数口径：内部始终用「原始异常图 top-k 均值」（自匹配≈0，缺陷≈0.1+），
+        # 对外通过 normalize_score() 锚定映射到 [0,1]。
+        # 默认阈值 0.5 是归一化分数口径；校准会用正常图更新 base/scale 使其有意义。
+        self.threshold: float = 0.5
+
+        # 归一化锚点：score_base=典型正常原始分，score_scale=e-folding 标度。
+        # 未校准时用保守兜底（base≈0, scale=0.5）：raw=0.5 左右 → 0.63，raw 0.16-0.28 → 0.27-0.43。
+        # 校准流程（/api/calibrate）用用户正常图的原始分覆盖这两者。
+        self.score_base: float = 0.0
+        self.score_scale: float = 0.5
 
         # Localization
         self.enable_localization = enable_localization
@@ -663,7 +671,9 @@ class SubspaceAnomalyDetector:
 
             result = {
                 "image_name": test_name,
-                "anomaly_score": float(top_k_mean),
+                # 内部口径保留原始 top-k 均值（供校准计算锚点），对外分数归一化到 [0,1]
+                "anomaly_score_raw": float(top_k_mean),
+                "anomaly_score": self.normalize_score(float(top_k_mean)),
                 "anomaly_map": anomaly_map_normalized,
                 "attention_map": attention_map,
             }
@@ -688,7 +698,7 @@ class SubspaceAnomalyDetector:
                             subspace_score=float(top_k_mean),
                             graph_result=graph_result,
                         )
-                        result["fused_score"] = fused["final_score"]
+                        result["fused_score"] = self.normalize_score(fused["final_score"])
                         result["fusion_method"] = "graph_structure"
                         result["structural_score"] = fused["structural_score"]
                         if verbose:
@@ -722,7 +732,7 @@ class SubspaceAnomalyDetector:
                             layout_result=layout_result,
                         )
                         # LayoutAD override if available (prioritize over graph check)
-                        result["fused_score"] = fused["final_score"]
+                        result["fused_score"] = self.normalize_score(fused["final_score"])
                         result["fusion_method"] = "layoutad_gnn"
                         result["layout_score"] = fused["layout_score"]
                         if verbose:
@@ -808,10 +818,21 @@ class SubspaceAnomalyDetector:
         return result["anomaly_score"]
 
     # ============================================================
-    # Threshold Management
+    # Score Normalization
     # ============================================================
+    def normalize_score(self, raw: float) -> float:
+        """把原始 top-k 分数锚定映射到 [0,1]，供对外展示与判定。
 
-    def set_threshold(self, threshold: float = 0.3):
+        映射:  raw = score_base        → 0
+               raw = score_base+scale  → 1 - 1/e ≈ 0.63
+               raw = score_base+3scale → ≈ 0.95
+        score_base/score_scale 由校准（/api/calibrate）用正常图的原始分设定，
+        未校准时是保守兜底值。映射单调有界，不会把正常图顶到 1.0。
+        """
+        d = max(0.0, float(raw) - self.score_base)
+        return float(np.clip(1.0 - math.exp(-d / max(self.score_scale, 1e-6)), 0.0, 1.0))
+
+    def set_threshold(self, threshold: float = 0.5):
         self.threshold = threshold
         logger.info("Anomaly threshold set to: %s", threshold)
 

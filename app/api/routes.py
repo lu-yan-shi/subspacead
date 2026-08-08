@@ -239,12 +239,14 @@ async def detect(
     anomaly_score = result["anomaly_score"]
     anomaly_map = result["anomaly_map"]
 
-    threshold = getattr(detector, "threshold", 0.1)
+    threshold = getattr(detector, "threshold", 0.5)
     is_anomaly = anomaly_score > threshold
 
     resp = {
         "success": True,
+        # 0-1 归一化分数；raw_score 为内部原始 top-k 均值（供校准计算锚点）
         "anomaly_score": round(float(anomaly_score), 6),
+        "anomaly_score_raw": round(float(result.get("anomaly_score_raw", anomaly_score)), 6),
         "is_anomaly": is_anomaly,
         "threshold": threshold,
         "inference_time_ms": round(elapsed * 1000, 1),
@@ -294,14 +296,85 @@ async def detect(
 
 
 @business_router.post("/set-threshold", summary="Set Detection Threshold")
-async def set_threshold(request: Request, threshold: float = Form(0.1)):
-    """设置判定阈值（前端阈值标定完成后调用）。"""
+async def set_threshold(request: Request, threshold: float = Form(0.5)):
+    """设置判定阈值（0-1 归一化分数口径）。"""
     detector: SubspaceAnomalyDetector = _get_detector(request)
     if not 0.0 <= threshold <= 1.0:
         raise HTTPException(400, "阈值需在 [0, 1] 区间")
     detector.threshold = float(threshold)
     logger.info("Threshold set to %.4f", detector.threshold)
     return {"success": True, "threshold": detector.threshold}
+
+
+@business_router.post("/calibrate", summary="Calibrate Score Anchors & Threshold")
+async def calibrate(
+    request: Request,
+    files: List[UploadFile] = File(..., description="正常图像（用于锚定分数基线）"),
+    top_k_ratio: float = Form(0.01, description="图像级分数的 top-k 比例"),
+):
+    """用正常图像标定分数归一化锚点与判定阈值。
+
+    取原始 top-k 均值分数：base=均值、thr_raw=min(均值+3σ, p99*1.2)，
+    scale=thr_raw-base，使阈值映射到归一化空间恒为 1-1/e≈0.632；
+    base/scale 同时驱动后续所有 [0,1] 分数（正常图≈0，缺陷越高越接近 1）。
+    """
+    if not request.app.state.is_trained:
+        raise HTTPException(400, "请先调用 /api/train 构建记忆库")
+    if not files:
+        raise HTTPException(400, "请至少上传一张正常图像")
+
+    detector: SubspaceAnomalyDetector = _get_detector(request)
+    raw_scores = []
+    for f in files:
+        data = await f.read()
+        _validate_image(f.filename or "image.jpg", data)
+        pil = _bytes_to_pil(data)
+        try:
+            async with _detector_lock:
+                res = await asyncio.to_thread(
+                    detector.detect,
+                    test_images=[pil],
+                    save_dir=None,
+                    save_visualizations=False,
+                    enable_localization=False,
+                    top_k_ratio=top_k_ratio,
+                    verbose=False,
+                )
+        except Exception as e:
+            logger.error("Calibrate detect failed: %s", e)
+            raise HTTPException(500, f"标定检测失败: {str(e)}")
+        raw_scores.append(float(res[0].get("anomaly_score_raw", res[0]["anomaly_score"])))
+
+    if not raw_scores:
+        raise HTTPException(400, "标定失败：无法获取任何分数")
+
+    arr = np.array(raw_scores)
+    mean = float(arr.mean())
+    std = float(arr.std()) if arr.size > 1 else 0.0
+    p99 = float(np.percentile(arr, 99))
+    thr_raw = min(mean + 3 * std, p99 * 1.2)
+    scale = max(thr_raw - mean, 1e-3)
+
+    detector.score_base = mean
+    detector.score_scale = scale
+    detector.threshold = detector.normalize_score(thr_raw)  # 恒等于 1 - 1/e ≈ 0.632
+
+    normalized = [detector.normalize_score(r) for r in raw_scores]
+    logger.info(
+        "Calibrated: base=%.4f scale=%.4f thr_raw=%.4f threshold=%.4f (n=%d)",
+        mean, scale, thr_raw, detector.threshold, len(raw_scores),
+    )
+
+    return {
+        "success": True,
+        "threshold": round(detector.threshold, 6),
+        "score_base": round(mean, 6),
+        "score_scale": round(scale, 6),
+        "raw_mean": round(mean, 6),
+        "raw_std": round(std, 6),
+        "raw_p99": round(p99, 6),
+        "scores": [round(s, 6) for s in normalized],
+    }
 
 
 @business_router.post("/reset", summary="Reset Detector")
@@ -359,7 +432,9 @@ async def status(request: Request):
         "similarity_aggregation": detector.similarity_aggregation,
         "layer_fusion": detector.layer_fusion,
         "layers": list(detector.layers),
-        "threshold": getattr(detector, "threshold", 0.1),
+        "threshold": getattr(detector, "threshold", 0.5),
+        "score_base": getattr(detector, "score_base", 0.0),
+        "score_scale": getattr(detector, "score_scale", 0.5),
         "train_info": request.app.state.train_info,
     }
 
