@@ -24,10 +24,10 @@ def _csv_env(name: str, default: str = "") -> list[str]:
     return [item.strip() for item in raw.split(",") if item.strip()]
 
 
-SERVICE_NAME = os.environ.get("SERVICE_NAME", "SubspaceAD")
+SERVICE_NAME = os.environ.get("SERVICE_NAME", "深瞳")
 SERVICE_VERSION = os.environ.get("SERVICE_VERSION", "1.0.0")
 SERVICE_DESCRIPTION = os.environ.get(
-    "SERVICE_DESCRIPTION", "基于 DINOv2 + PCA 子空间建模的少样本异常检测服务"
+    "SERVICE_DESCRIPTION", "深瞳 — 基于 DINOv2 + 记忆库的少样本工业异常检测系统"
 )
 SERVICE_PORT = int(os.environ.get("PORT", "8704"))
 
@@ -48,11 +48,45 @@ SUPPORTED_FORMATS = _csv_env("SUPPORTED_FORMATS", "png,jpg,jpeg,bmp,tiff")
 MAX_FILE_SIZE_MB = float(os.environ.get("MAX_FILE_SIZE_MB", "50"))
 
 # SubspaceAD model settings
-DEFAULT_IMAGE_RES = int(os.environ.get("DEFAULT_IMAGE_RES", "512"))
-DEFAULT_PCA_EV = float(os.environ.get("DEFAULT_PCA_EV", "0.99"))
-DEFAULT_SCORE_METHOD = os.environ.get("DEFAULT_SCORE_METHOD", "reconstruction")
+# Default: DINOv2 with registers (HF public model)
+# For local weights: set MODEL_PATH=/path/to/local/model/dir
+# For HF mirror: set HF_ENDPOINT=https://hf-mirror.com
+MODEL_PATH = os.environ.get(
+    "MODEL_PATH",
+    "facebook/dinov2-with-registers-base",
+)
+MODEL_TYPE = os.environ.get("MODEL_TYPE", "dinov2_with_register")
+DEFAULT_IMAGE_RES = int(os.environ.get("DEFAULT_IMAGE_RES", "448"))
+SUBSPACE_SIMILARITY_AGGREGATION = os.environ.get("SUBSPACE_SIMILARITY_AGGREGATION", "max")
+SUBSPACE_LAYER_FUSION = os.environ.get("SUBSPACE_LAYER_FUSION", "score_avg")
+
+# PatchCore-style memory-bank coreset + weighted k-NN (默认关闭，保持现有行为)
+# CORESET_RATIO: 0.0 = 不采样; 0.05 = 保留 5% 最远点 coreset
+SUBSPACE_CORESET_RATIO = float(os.environ.get("CORESET_RATIO", "0.0"))
+SUBSPACE_CORESET_SEED = int(os.environ.get("CORESET_SEED", "42"))
+SUBSPACE_KNN_K = int(os.environ.get("KNN_K", "9"))
+SUBSPACE_KNN_TEMPERATURE = float(os.environ.get("KNN_TEMPERATURE", "1.0"))
+SUBSPACE_LAYERS = tuple(
+    int(x.strip()) for x in os.environ.get("SUBSPACE_LAYERS", "8,10,12").split(",")
+    if x.strip()
+)
 
 CPU_SPIKE_THRESHOLD = float(os.environ.get("CPU_SPIKE_THRESHOLD", "50"))
+
+# Object localization
+DEFAULT_LOCALIZE = os.environ.get("DEFAULT_LOCALIZE", "true").lower() in {"1", "true", "yes"}
+DEFAULT_LOCALIZATION_METHOD = os.environ.get("DEFAULT_LOCALIZATION_METHOD", "auto")
+DEFAULT_CROP_TO_ROI = os.environ.get("DEFAULT_CROP_TO_ROI", "true").lower() in {"1", "true", "yes"}
+ROI_MARGIN_RATIO = float(os.environ.get("ROI_MARGIN_RATIO", "0.10"))
+
+# LayoutAD double-check (GNN-based structural verification)
+# 工作模式: "light" (默认, SubspaceAD 热力图提取区域) 或 "full" (Mask2Former + CLIP)
+ENABLE_LAYOUTAD = os.environ.get("ENABLE_LAYOUTAD", "true").lower() in {"1", "true", "yes"}
+LAYOUTAD_CHECKPOINT = os.environ.get("LAYOUTAD_CHECKPOINT", "") or None
+LAYOUTAD_PIPELINE_MODE = os.environ.get("LAYOUTAD_PIPELINE_MODE", "light")
+# Full pipeline (Mask2Former + CLIP) — 仅 pipeline_mode=full 时需要
+LAYOUTAD_MASK2FORMER_CONFIG = os.environ.get("LAYOUTAD_MASK2FORMER_CONFIG", "") or None
+LAYOUTAD_MASK2FORMER_WEIGHTS = os.environ.get("LAYOUTAD_MASK2FORMER_WEIGHTS", "") or None
 
 # Optional NVIDIA GPU resource collection
 ENABLE_GPU_METRICS = os.environ.get("ENABLE_GPU_METRICS", "false").lower() in {"1", "true", "yes"}

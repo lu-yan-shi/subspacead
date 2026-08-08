@@ -1,34 +1,34 @@
-# ============================================================
-# SubspaceAD Dockerfile
-# ============================================================
-# 构建（默认 CUDA，支持 GPU/CPU 自动切换）:
-#   docker build -t subspacead .
-#
-# 运行:
-#   GPU: docker run --gpus all -p 8704:8704 subspacead
-#   CPU: docker run -p 8704:8704 subspacead
-# ============================================================
-
 FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 \
+# ── System deps ──
+RUN sed -i 's|http://archive.ubuntu.com|http://mirrors.tuna.tsinghua.edu.cn|g; s|http://security.ubuntu.com|http://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list && \
+    apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 libglib2.0-0 git \
     && rm -rf /var/lib/apt/lists/*
 
+# ── Python deps (skip torch, already in base image) ──
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple
 COPY requirements.txt .
-RUN pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+RUN sed -i '/^torch/d; /^torchvision/d' requirements.txt && \
+    pip install --no-cache-dir -r requirements.txt
 
-# 提前拷贝模型下载器 + Token，构建时预下载
-COPY models/model_downloader.py ./models/model_downloader.py
-COPY ModelScope_token ./ModelScope_token
-RUN mkdir -p /app/weights && \
-    python -c "from models.model_downloader import ensure_weights; ensure_weights()"
+# ── torch_geometric (for LayoutAD) ──
+RUN pip install --no-cache-dir torch-scatter torch-geometric || true
 
-# 其余代码（改代码只重建这一层，不重下载模型）
+# ── ad-pipelines (DuoAD) ──
+# 从仓库内 vendor/ad-pipelines 构建（含 coreset/knn 改动），不依赖 GitHub clone。
+COPY vendor/ad-pipelines /tmp/ad-pipelines
+RUN cd /tmp/ad-pipelines && pip install --no-cache-dir . && rm -rf /tmp/ad-pipelines
+
+# ── App code ──
 COPY . .
+
+# Entrypoint: auto-download model at startup, then launch uvicorn
+COPY scripts/docker_entrypoint.sh /docker_entrypoint.sh
+RUN chmod +x /docker_entrypoint.sh
 
 EXPOSE 8704
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8704"]
+ENTRYPOINT ["/docker_entrypoint.sh"]

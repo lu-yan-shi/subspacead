@@ -69,11 +69,11 @@ async def health(request: Request):
     else:
         components["model"] = "down"
 
-    # PCA: training state — not required for service to be alive, but needed for /api/detect
+    # Memory bank: training state — not required for service to be alive, but needed for /api/detect
     if getattr(request.app.state, "is_trained", False):
-        components["pca"] = "healthy"
+        components["memory_bank"] = "healthy"
     else:
-        components["pca"] = "degraded"
+        components["memory_bank"] = "degraded"
 
     # GPU: real dependency for inference performance
     gpu_info = get_gpu_info()

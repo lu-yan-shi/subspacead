@@ -16,7 +16,9 @@ services:
               count: 1
               capabilities: [gpu]
     environment:
-      - MODELSCOPE_TOKEN=${MODELSCOPE_TOKEN}
+      - MODEL_PATH=/app/weights/dinov2
+    volumes:
+      - subspacead_weights:/app/weights
     restart: unless-stopped
 
   subspacead-cpu:
@@ -29,5 +31,10 @@ services:
     ports:
       - "8704:8704"
     environment:
-      - MODELSCOPE_TOKEN=${MODELSCOPE_TOKEN}
+      - MODEL_PATH=/app/weights/dinov2
+    volumes:
+      - subspacead_weights:/app/weights
     restart: unless-stopped
+
+volumes:
+  subspacead_weights:

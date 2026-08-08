@@ -1,0 +1,6 @@
+anomalib
+torchmetrics
+transformers<5
+opencv-python-headless
+scikit-learn
+timm>=1.0.0

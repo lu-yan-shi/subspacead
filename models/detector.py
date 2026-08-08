@@ -1,224 +1,461 @@
 """
-SubspaceAD 异常检测器 - 可迁移的工业质检模块
-基于 DINOv2 特征和 PCA 子空间建模的少样本异常检测
+深瞳 异常检测器
+基于 DINOv2 + 记忆库的少样本异常检测（Training-Free）
 """
 
-import os
-import logging
-from pathlib import Path
-from typing import List, Dict, Optional, Tuple, Union
-from PIL import Image
-import numpy as np
-import cv2
-import torch
+from __future__ import annotations
 
-# 导入核心组件
+import logging
+import os
+import traceback
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union
+
+import cv2
+import numpy as np
+import torch
+from PIL import Image
+
+# SubspaceAD pipeline imports (requires: pip install ad-pipelines)
+_MISSING_PIPELINE_MSG = ""
 try:
-    from .subspacead.core.extractor import FeatureExtractor
-    from .subspacead.core.pca import PCAModel
-    from .subspacead.post_process.scoring import calculate_anomaly_scores
+    from ad_pipelines.models import DinoV2WithRegisterModel
+    from ad_pipelines.pipelines import DuoADPipeline, PatchEADOutput
+    _HAS_PIPELINE = True
+except ImportError as e:
+    DinoV2WithRegisterModel = None  # type: ignore
+    DuoADPipeline = None   # type: ignore
+    PatchEADOutput = None  # type: ignore
+    _HAS_PIPELINE = False
+    _MISSING_PIPELINE_MSG = str(e)
+
+# Optional: DINOv3 (gated model, requires HF auth)
+try:
+    from ad_pipelines.models import DinoV3ViTModel
+    _HAS_DINOV3 = True
+except ImportError:
+    DinoV3ViTModel = None  # type: ignore
+    _HAS_DINOV3 = False
+
+# Localization module (compatible with SubspaceAD attention maps)
+try:
+    from .subspacead.core.localization import (
+        ObjectLocalizer,
+        LocalizationResult,
+        crop_to_roi,
+        map_anomaly_to_original,
+        expand_bbox_square,
+    )
     from .subspacead.utils.common import min_max_norm
 except ImportError as e:
-    raise ImportError(
-        f"无法导入 subspacead 包。请确保文件结构完整。错误详情：{e}"
-    )
+    raise ImportError(f"无法导入 subspacead 包。请确保文件结构完整。错误详情：{e}")
+
+# LayoutAD double-check (optional GNN-based structural verification)
+_LAYOUTAD_AVAILABLE = False
+try:
+    from .layoutad.inference import LayoutADInference
+    _LAYOUTAD_AVAILABLE = True
+except ImportError:
+    LayoutADInference = None  # type: ignore
+
+# Training-free graph structure check (always available, zero dependencies)
+try:
+    from .layoutad.graph_check import GraphStructureChecker
+except ImportError as e:
+    GraphStructureChecker = None  # type: ignore
+    logger = logging.getLogger(__name__)
+    logger.warning("GraphStructureChecker import failed: %s. Graph double-check disabled.", e)
 
 logger = logging.getLogger(__name__)
+
+# Default model: DINOv2 with registers (public, no auth required)
+# For DINOv3: set MODEL_PATH=facebook/dinov3-vitb16-pretrain-lvd1689m
+DEFAULT_MODEL_PATH = os.environ.get(
+    "MODEL_PATH",
+    "facebook/dinov2-with-registers-base",
+)
 
 
 class SubspaceAnomalyDetector:
     """
-    基于 SubspaceAD 的异常检测器
-    
+    基于 DINOv2 + 记忆库的少样本异常检测器。
+
     特性:
-        - 少样本学习：仅需 1-2 张正常图像即可训练
-        - 自适应层选择：根据模型深度自动选择最优特征层
-        - 多尺度特征聚合：融合多层 DINOv2 特征
-        - 实时推理：单次前向传播即可完成检测
-        
+        - Training-Free：直接构建正常图像特征记忆库，无需训练
+        - CLS-Patch 显著性：利用 CLS token 与 patch 特征相似度定位异常
+        - 多层特征融合：支持 score_avg / score_max / feature_avg / feature_concat
+        - 双聚合模式：max 或 top1_mean 相似度聚合
+        - 内建目标定位：attention_map 可直接用于 ROI 定位
+
     示例:
         >>> detector = SubspaceAnomalyDetector()
-        >>> detector.train_normal(template_images=["normal_1.jpg", "normal_2.jpg"])
+        >>> detector.train(template_images=["normal_1.jpg", "normal_2.jpg"])
         >>> results = detector.detect(test_images=["test_1.jpg", "test_2.jpg"])
         >>> for result in results:
         ...     print(f"{result['image_name']}: {result['anomaly_score']:.4f}")
     """
-    
+
     def __init__(
         self,
-        model_ckpt: str = None,  # 默认使用本地模型
-        image_res: int = 512,
-        pca_ev: float = 0.99,
+        model_path: Optional[str] = None,
+        image_res: int = 448,
         device: Optional[str] = None,
         use_clahe: bool = False,
-        score_method: str = "reconstruction",
-        drop_k: int = 0,
+        # SubspaceAD-specific parameters
+        similarity_aggregation: str = "max",
+        layer_fusion: str = "score_avg",
+        layers: Tuple[int, ...] = (8, 10, 12),
+        # Performance
+        use_fp16: bool = True,
+        # Localization parameters (preserved)
+        enable_localization: bool = True,
+        localization_method: str = "auto",
+        crop_to_roi: bool = True,
+        roi_margin: float = 0.10,
+        # LayoutAD double-check (optional)
+        enable_layoutad: bool = True,
+        layoutad_checkpoint: Optional[str] = None,
+        layoutad_mask2former_config: Optional[str] = None,
+        layoutad_mask2former_weights: Optional[str] = None,
+        # PatchCore-style memory-bank coreset + weighted k-NN (default: off)
+        coreset_ratio: float = 0.0,   # 0.0 = 不采样; 0.05 = 保留 5% 最远点 coreset
+        coreset_seed: int = 42,
+        knn_k: int = 9,
+        knn_temperature: float = 1.0,
     ):
         """
-        初始化异常检测器
-        
         Args:
-            model_ckpt: DINOv2 模型路径或 HuggingFace 模型名
-                       如果为 None，默认使用本地 weights/ 目录
+            model_path: DINOv2 模型路径或 HuggingFace model id
             image_res: 输入图像分辨率（正方形）
-            pca_ev: PCA 保留方差比例 (0-1)
             device: 计算设备 ("cuda"/"cpu")，默认自动选择
             use_clahe: 是否使用 CLAHE 增强
-            score_method: 异常分数计算方法 ("reconstruction"/"mahalanobis"/"euclidean"/"cosine")
-            drop_k: 丢弃前 k 个主成分（用于去除正常变异）
+            similarity_aggregation: 相似度聚合方法 ("max"/"top1_mean")
+            layer_fusion: 多层融合方法 ("score_avg"/"score_max"/"feature_avg"/"feature_concat")
+            layers: 使用的层索引，如 (8, 10, 12)
+            use_fp16: GPU 上使用 FP16 半精度（速度翻倍，显存减半）
+            enable_localization: 是否启用目标定位
+            localization_method: 定位策略 ("auto"/"saliency"/"contour"/"none")
+            crop_to_roi: 定位后是否裁切 ROI 检测
+            roi_margin: ROI 扩展边距比例
+            enable_layoutad: 是否启用 LayoutAD GNN 结构 double-check
+            layoutad_checkpoint: LayoutAD 模型权重路径
+            coreset_ratio: PatchCore 式记忆库 coreset 比例 (0.0=关闭)
+            coreset_seed: coreset 采样种子
+            knn_k: knn_weighted 聚合的近邻数
+            knn_temperature: knn_weighted 逆距离加权温度
         """
-        # 如果没有指定模型路径，使用本地模型
-        if model_ckpt is None:
-            # 获取当前文件所在目录
-            current_dir = Path(__file__).parent
-            local_model_path = current_dir.parent / "weights"
+        if not _HAS_PIPELINE:
+            raise ImportError(
+                "SubspaceAD 依赖库 (ad-pipelines) 未安装。\n"
+                "本地: pip install ad-pipelines\n"
+                "Docker: 自动安装（见 Dockerfile）\n"
+                f"详细错误: {_MISSING_PIPELINE_MSG}"
+            )
 
-            if local_model_path.exists():
-                self.model_ckpt = str(local_model_path)
-                logger.info(f"使用本地模型：{self.model_ckpt}")
-            else:
-                raise FileNotFoundError(
-                    f"本地模型未找到，请手动放置模型文件到以下目录：\n"
-                    f"  {local_model_path}\n\n"
-                    f"可从以下方式获取模型：\n"
-                    f"  1. 从 HuggingFace 下载：\n"
-                    f"     https://huggingface.co/facebook/dinov2-small/tree/main\n"
-                    f"  2. 从已经部署的服务器 / 其他机器复制 weights/ 目录\n"
-                    f"  3. 运行以下 Python 脚本自动下载：\n"
-                    f"     from transformers import AutoModel, AutoImageProcessor\n"
-                    f"     AutoModel.from_pretrained('facebook/dinov2-small', cache_dir='models')\n"
-                )
-        else:
-            self.model_ckpt = model_ckpt
-        self.image_res = image_res
-        self.pca_ev = pca_ev
-        self.use_clahe = use_clahe
-        self.score_method = score_method
-        self.drop_k = drop_k
-        
-        # 自动选择设备
+        # Hardware
         if device is None:
             self.device = "cuda" if torch.cuda.is_available() else "cpu"
         else:
             self.device = device
-        
-        logger.info(f"Using device: {self.device}")
-        
-        # 初始化组件
-        self.extractor: Optional[FeatureExtractor] = None
-        self.pca_params: Optional[Dict] = None
+        self._device_torch = torch.device(self.device)
+        self.use_fp16 = use_fp16 and self.device == "cuda"
+        self._dtype = torch.float16 if self.use_fp16 else torch.float32
+
+        logger.info(
+            "Device: %s | Precision: %s",
+            self.device, "FP16" if self.use_fp16 else "FP32",
+        )
+
+        # Model & Pipeline
+        self.model_path = model_path or DEFAULT_MODEL_PATH
+        self.image_res = image_res
+        self.use_clahe = use_clahe
+        self.similarity_aggregation = similarity_aggregation
+        self.layer_fusion = layer_fusion
+        self.layers = tuple(layers)
+
+        self.coreset_ratio = coreset_ratio
+        self.coreset_seed = coreset_seed
+        self.knn_k = max(1, knn_k)
+        self.knn_temperature = knn_temperature
+
+        self.model = None
+        self.pipeline: Optional[DuoADPipeline] = None
+        self.prompt_features: Optional[torch.Tensor] = None  # memory bank
         self.is_trained = False
-        
-        # 层配置（根据模型深度自动选择）
-        self.layers_config = {
-            "giant": list(range(-8, 0)),   # 40+ layers
-            "large": list(range(-6, 0)),   # 24+ layers
-            "base": list(range(-4, 0)),    # <24 layers
-        }
-        self.agg_method = "mean"  # 特征聚合方式
-    
-    def _get_model_layers(self, num_hidden_layers: int) -> List[int]:
-        """根据模型深度获取使用的层索引"""
-        if num_hidden_layers >= 40:
-            layers = self.layers_config["giant"]
-        elif num_hidden_layers >= 24:
-            layers = self.layers_config["large"]
+        self.threshold: float = 0.3
+
+        # Localization
+        self.enable_localization = enable_localization
+        self.localization_method = localization_method
+        self.crop_to_roi = crop_to_roi
+        self.roi_margin = roi_margin
+        self._localizer = ObjectLocalizer(default_method=localization_method)
+
+        # LayoutAD double-check (GNN-based structural verification)
+        self.enable_layoutad = enable_layoutad and _LAYOUTAD_AVAILABLE
+        self._layoutad_engine: Optional[LayoutADInference] = None
+        if self.enable_layoutad:
+            try:
+                self._layoutad_engine = LayoutADInference(
+                    checkpoint_path=layoutad_checkpoint,
+                    device=self.device,
+                    mask2former_config=layoutad_mask2former_config,
+                    mask2former_weights=layoutad_mask2former_weights,
+                )
+                if not self._layoutad_engine.available:
+                    logger.warning(
+                        "LayoutAD 已启用但模型权重未找到，double-check 将自动跳过。"
+                    )
+            except Exception as e:
+                logger.warning("LayoutAD 初始化失败: %s，将跳过 double-check。", e)
+                self._layoutad_engine = None
+
+        # Training-free graph structure checker (always available if import succeeded)
+        if GraphStructureChecker is not None:
+            self._graph_checker = GraphStructureChecker()
         else:
-            layers = self.layers_config["base"]
-        
-        logger.info(f"Model has {num_hidden_layers} layers, using: {layers}")
-        return layers
-    
+            self._graph_checker = None
+        self._graph_ref_built = False
+
+        # Lazy init
+        layout_status = "ON" if (self._layoutad_engine and self._layoutad_engine.available) else "OFF"
+        coreset_status = "OFF" if (self.coreset_ratio <= 0.0 or self.coreset_ratio >= 1.0) \
+            else f"ON(β={self.coreset_ratio})"
+        logger.info(
+            "SubspaceAnomalyDetector ready (lazy load).\n"
+            "  model=%s  resolution=%d  sim=%s  fusion=%s  layers=%s  layoutad=%s  graph_check=ON"
+            "  coreset=%s  knn_weighted(k=%d,T=%s)",
+            self.model_path, self.image_res,
+            self.similarity_aggregation, self.layer_fusion, self.layers,
+            layout_status, coreset_status, self.knn_k, self.knn_temperature,
+        )
+
+    # ============================================================
+    # Model State
+    # ============================================================
+
+    @property
+    def is_loaded(self) -> bool:
+        """模型权重是否已实际加载（pipeline 就绪）。
+
+        懒加载模式下首次 train() 后才为 True，反映真实加载状态。
+        """
+        return self.pipeline is not None
+
+    def weights_ready(self) -> bool:
+        """本地目录模式下，权重文件是否已就绪（启动时的防御性检查）。
+
+        返回 False 说明入口脚本/模型 volume 未提供权重文件，服务无法正常工作，
+        此时应在 lifespan 中禁用检测器，让 /mse/health 如实报告 down。
+        """
+        path = self.model_path
+        if os.path.isdir(path):
+            return any(
+                os.path.isfile(os.path.join(path, name))
+                for name in ("model.safetensors", "pytorch_model.bin")
+            )
+        # HF model id 模式下由加载器负责下载，视为就绪
+        return True
+
+    # ============================================================
+    # Lazy Model Loading
+    # ============================================================
+
+    def _pipeline_cfg_matches(self) -> bool:
+        """已存在的 pipeline 是否与当前训练参数一致（用于 F2：重训参数变化时重建）。"""
+        if self.pipeline is None:
+            return False
+        return (
+            self.pipeline.similarity_aggregation == self.similarity_aggregation
+            and self.pipeline.layer_fusion_method == self.layer_fusion
+            and self.pipeline.coreset_ratio == self.coreset_ratio
+            and self.pipeline.coreset_seed == self.coreset_seed
+            and self.pipeline.knn_k == self.knn_k
+            and self.pipeline.knn_temperature == self.knn_temperature
+        )
+
+    def _ensure_model(self):
+        """Lazy-load model + pipeline with full optimizations.
+
+        训练参数（相似度聚合/融合/coreset/k-NN）变化时只重建 pipeline 包装，
+        复用已加载的模型权重（不重载 346MB）。参数变化会使旧记忆库失效，
+        需重新 train 构建。
+        """
+        if self.pipeline is not None and self._pipeline_cfg_matches():
+            return
+
+        model_was_loaded = self.model is not None
+        if not model_was_loaded:
+            # Auto-detect model class: DINOv3 if path contains "dinov3", else DINOv2
+            is_dinov3 = "dinov3" in self.model_path.lower()
+            if is_dinov3 and not _HAS_DINOV3:
+                logger.warning(
+                    "DINOv3 requested but not available, falling back to DINOv2. "
+                    "DINOv3 is a gated model requiring HuggingFace authentication."
+                )
+                is_dinov3 = False
+
+            # Common kwargs: FP16 half-precision for GPU speed
+            model_kwargs = {
+                "device": self._device_torch,
+                "dtype": self._dtype,
+                "resolution": self.image_res,
+            }
+
+            if is_dinov3:
+                logger.info("Loading DINOv3 ViT: %s (FP16=%s)...", self.model_path, self.use_fp16)
+                self.model = DinoV3ViTModel(self.model_path, **model_kwargs)
+            else:
+                logger.info("Loading DINOv2 with registers: %s (FP16=%s)...", self.model_path, self.use_fp16)
+                self.model = DinoV2WithRegisterModel(self.model_path, **model_kwargs)
+        else:
+            logger.info("训练参数变更 — 重建 DuoAD pipeline（复用已加载模型 %s）", self.model_path)
+
+        logger.info(
+            "Creating SubspaceAD pipeline (res=%d, sim=%s, fusion=%s, layers=%s, coreset=%s, knn_weighted(k=%d))...",
+            self.image_res, self.similarity_aggregation,
+            self.layer_fusion, self.layers, self.coreset_ratio, self.knn_k,
+        )
+        self.pipeline = DuoADPipeline(
+            model=self.model,
+            resolution=self.image_res,
+            similarity_aggregation=self.similarity_aggregation,
+            layer_fusion_method=self.layer_fusion,
+            coreset_ratio=self.coreset_ratio,
+            coreset_seed=self.coreset_seed,
+            knn_k=self.knn_k,
+            knn_temperature=self.knn_temperature,
+            device=self._device_torch,
+            dtype=self._dtype,
+        )
+        self.pipeline.model.eval()
+
+        # 参数变化导致 pipeline 重建 → 旧记忆库已不匹配，作废并要求重新 train
+        if self.prompt_features is not None:
+            self.prompt_features = None
+            self.is_trained = False
+            logger.info("记忆库已作废（pipeline 参数变化）— 请重新 train 构建。")
+
+        if model_was_loaded:
+            return  # 模型未重新加载，无需再 warmup
+
+        # Warmup: run a dummy forward pass so first real request is instant
+        logger.info("Running model warmup...")
+        t0 = __import__("time").time()
+        dummy = Image.new("RGB", (self.image_res, self.image_res), color=(128, 128, 128))
+        with torch.no_grad():
+            _ = self.pipeline.model.get_features(
+                self.pipeline.model.preprocess([dummy], resolution=self.image_res).to(
+                    device=self._device_torch, dtype=self._dtype,
+                ),
+                return_attentions=False,
+                output_feature_maps_indices=(-1,),
+            )
+        logger.info("Warmup complete (%.1fs) — model ready.", __import__("time").time() - t0)
+
+    # ============================================================
+    # Training (build memory bank)
+    # ============================================================
+
     def train(
         self,
         template_images: Union[List[str], List[Image.Image]],
         verbose: bool = True,
     ) -> Dict:
         """
-        使用正常图像训练 PCA 模型
-        
+        使用正常图像构建 SubspaceAD 特征记忆库（Training-Free，仅存储特征）。
+
         Args:
             template_images: 正常图像路径列表或 PIL Image 对象列表
             verbose: 是否打印日志
-            
+
         Returns:
             训练信息字典
         """
+        self._ensure_model()
+
         if verbose:
             logger.info("=" * 60)
-            logger.info("🔧 Training SubspaceAD Model")
+            logger.info("🔧 Building SubspaceAD Memory Bank")
             logger.info("=" * 60)
-        
-        # 1. 加载特征提取器
-        if verbose:
-            logger.info("\n📦 Loading DINOv2 model...")
-        self.extractor = FeatureExtractor(self.model_ckpt)
-        
-        # 2. 准备图像
+
+        # Prepare images
         if isinstance(template_images[0], str):
             imgs = [Image.open(p).convert("RGB") for p in template_images]
         else:
             imgs = template_images
-        
+
         if verbose:
-            logger.info(f"Loaded {len(imgs)} template images")
-        
-        # 3. 获取模型配置
-        extractor_model_cfg = self.extractor.model.config
-        num_hidden_layers = extractor_model_cfg.num_hidden_layers
-        layers = self._get_model_layers(num_hidden_layers)
-        
-        # 4. 提取特征
-        if verbose:
-            logger.info("\n🔍 Extracting features from templates...")
-        
-        tokens, (h_p, w_p), _ = self.extractor.extract_tokens(
-            imgs,
-            self.image_res,
-            layers,
-            self.agg_method,
-            docrop=False,
-            use_clahe=self.use_clahe,
-        )
-        
-        b, _, _, c = tokens.shape
-        feature_dim = c
-        tokens_reshaped = tokens.reshape(b * h_p * w_p, c)
-        
-        if verbose:
-            logger.info(f"  Feature dimension: {feature_dim}")
-            logger.info(f"  Token grid: {h_p} x {w_p}")
-            logger.info(f"  Total tokens: {b * h_p * w_p}")
-        
-        # 5. 拟合 PCA
-        if verbose:
-            logger.info("\n📊 Training PCA model...")
-        
-        def feature_generator():
-            yield tokens_reshaped
-        
-        pca_model = PCAModel(k=None, ev=self.pca_ev, whiten=False)
-        self.pca_params = pca_model.fit(
-            feature_generator,
-            feature_dim,
-            total_tokens=b * h_p * w_p,
-            num_batches=1,
-        )
-        
+            logger.info("Loaded %d template images", len(imgs))
+
+        # Build prompt features
+        t0 = __import__("time").time()
+        with torch.no_grad():
+            self.prompt_features = self.pipeline.get_prompt_features(
+                prompt_images=imgs,
+                resolution=self.image_res,
+                output_feature_maps_indices=self.layers,
+                layer_fusion_method=self.layer_fusion,
+            )
+        elapsed = __import__("time").time() - t0
+
         self.is_trained = True
-        
+        self._graph_ref_built = False  # Reset — will build on first detect
+
+        # Build graph reference from template for structural double-check
+        if self._graph_checker is not None:
+            try:
+                # Run a quick detection on templates to get anomaly maps for graph building
+                template_anomaly_maps = []
+                for img in imgs:
+                    with torch.no_grad():
+                        temp_output: PatchEADOutput = self.pipeline(
+                            prompt_images=self.prompt_features,
+                            test_images=[img],
+                            is_prompt_features=True,
+                            resolution=self.image_res,
+                            return_attentioned_anomaly_map=False,
+                            upsample_anomaly_map=True,
+                            upsample_resolution=img.size,
+                            output_feature_maps_indices=self.layers,
+                            layer_fusion_method=self.layer_fusion,
+                            anomaly_score_method="top1",
+                        )
+                    template_anomaly_maps.append(temp_output.anomaly_map.squeeze().numpy())
+                self._graph_checker.build_reference(imgs, template_anomaly_maps)
+                self._graph_ref_built = self._graph_checker.is_built
+                if self._graph_ref_built:
+                    logger.info("Graph structure reference built for double-check.")
+            except Exception as e:
+                logger.warning("Graph reference build skipped: %s", e)
+
+        # prompt_features may be a single tensor or a tuple (score-based fusion)
+        if isinstance(self.prompt_features, tuple):
+            first = self.prompt_features[0]
+        else:
+            first = self.prompt_features
+
+        n_patches, feat_dim = first.shape
+
         if verbose:
-            logger.info(f"  PCA components: {self.pca_params['k']}")
-            logger.info("✅ Training complete!")
+            n_layers = len(self.prompt_features) if isinstance(self.prompt_features, tuple) else 1
+            logger.info("  Memory bank: %d patches × %d dims × %d layers", n_patches, feat_dim, n_layers)
+            logger.info("  Build time: %.2f s", elapsed)
+            logger.info("✅ Memory bank ready!")
             logger.info("=" * 60)
-        
+
         return {
-            "pca_components": self.pca_params["k"],
-            "feature_dim": feature_dim,
-            "grid_size": (h_p, w_p),
+            "num_patches": n_patches,
+            "feature_dim": feat_dim,
             "num_templates": len(imgs),
+            "build_time_ms": round(elapsed * 1000, 1),
         }
-    
+
+    # ============================================================
+    # Detection
+    # ============================================================
+
     def detect(
         self,
         test_images: Union[List[str], List[Image.Image]],
@@ -228,105 +465,226 @@ class SubspaceAnomalyDetector:
         bbox_threshold: float = 0.5,
         top_k_ratio: float = 0.01,
         verbose: bool = True,
+        enable_localization: Optional[bool] = None,
+        localization_method: Optional[str] = None,
+        crop_to_roi: Optional[bool] = None,
+        roi_margin: Optional[float] = None,
     ) -> List[Dict]:
         """
-        对测试图像进行异常检测
-        
+        对测试图像进行异常检测（基于 SubspaceAD 记忆库余弦相似度）。
+
         Args:
             test_images: 测试图像路径列表或 PIL Image 对象列表
-            save_dir: 结果保存目录（如果为 None 则不保存）
+            save_dir: 结果保存目录
             save_visualizations: 是否保存可视化结果
-            viz_mode: 可视化模式 ("overlay", "side_by_side", "bbox")
-                     - "overlay": 原图叠加热力图
-                     - "side_by_side": 左边原图，右边叠加
-                     - "bbox": 原图缺陷区域画红色框
-            bbox_threshold: 缺陷检测阈值（仅 bbox 模式使用）
-            top_k_ratio: 计算图像级分数时使用的 top-k 比例
+            viz_mode: "overlay" / "side_by_side" / "bbox"
+            bbox_threshold: 缺陷检测阈值
+            top_k_ratio: 图像级分数的 top-k 比例
             verbose: 是否打印日志
-            
+            enable_localization: 是否启用目标定位
+            localization_method: 定位策略
+            crop_to_roi: 是否裁切 ROI 检测
+            roi_margin: ROI 扩展边距比例
+
         Returns:
-            检测结果列表，每项包含：
-                - image_name: 图像名称
-                - anomaly_score: 异常分数（标量）
-                - anomaly_map: 归一化的异常热力图（np.ndarray）
-                - overlay_path: 叠加图路径（如果保存）
-                - anomaly_map_path: 热力图路径（如果保存）
-                - viz_path: 自定义可视化路径（如果保存）
+            检测结果列表
         """
-        if not self.is_trained:
-            raise RuntimeError("请先调用 train() 方法训练模型")
-        
+        if not self.is_trained or self.prompt_features is None:
+            raise RuntimeError("请先调用 train() 方法构建记忆库")
+
+        self._ensure_model()
+
+        do_localize = enable_localization if enable_localization is not None else self.enable_localization
+        loc_method = localization_method or self.localization_method
+        do_crop = crop_to_roi if crop_to_roi is not None else self.crop_to_roi
+        loc_margin = roi_margin if roi_margin is not None else self.roi_margin
+
         if verbose:
-            logger.info("\n🔍 Detecting anomalies...")
-        
-        # 准备输出目录
+            logger.info("\n🔍 Detecting anomalies (SubspaceAD)...")
+
         if save_dir and save_visualizations:
             os.makedirs(save_dir, exist_ok=True)
-            # 不预先创建任何子目录，按需创建
-        
-        # 加载图像
+
+        # Load images
         if isinstance(test_images[0], str):
             imgs = [Image.open(p).convert("RGB") for p in test_images]
             img_names = [Path(p).stem for p in test_images]
         else:
             imgs = test_images
             img_names = [f"image_{i}" for i in range(len(test_images))]
-        
+
         results = []
-        
+
         for i, test_img in enumerate(imgs):
             test_name = img_names[i]
-            
-            # 提取特征
-            tokens_test, (h_p_test, w_p_test), _ = self.extractor.extract_tokens(
-                [test_img],
-                self.image_res,
-                self._get_model_layers(self.extractor.model.config.num_hidden_layers),
-                self.agg_method,
-                docrop=False,
-                use_clahe=self.use_clahe,
-            )
-            
-            b_test, _, _, c_test = tokens_test.shape
-            tokens_test_reshaped = tokens_test.reshape(
-                b_test * h_p_test * w_p_test, c_test
-            )
-            
-            # 计算异常分数
-            scores = calculate_anomaly_scores(
-                tokens_test_reshaped,
-                self.pca_params,
-                method=self.score_method,
-                drop_k=self.drop_k,
-            )
-            
-            # 重塑为热力图
-            anomaly_map = scores.reshape(h_p_test, w_p_test)
-            
-            # 后处理：双线性插值到原图大小
-            anomaly_map_cv = cv2.resize(
-                anomaly_map.astype(np.float32),
-                test_img.size,
-                interpolation=cv2.INTER_LINEAR
-            )
-            
-            # 归一化到 0-1
-            anomaly_map_normalized = min_max_norm(anomaly_map_cv)
-            
-            # 计算图像级异常分数（top-k% 均值）
+            localization_info = None
+            img_w, img_h = test_img.size
+
+            # ── Step 1: Run SubspaceAD inference ──
+            try:
+                with torch.no_grad():
+                    output: PatchEADOutput = self.pipeline(
+                        prompt_images=self.prompt_features,
+                        test_images=[test_img],
+                        is_prompt_features=True,
+                        resolution=self.image_res,
+                        return_attentioned_anomaly_map=False,
+                        upsample_anomaly_map=True,
+                        upsample_resolution=(img_w, img_h),
+                        output_feature_maps_indices=self.layers,
+                        layer_fusion_method=self.layer_fusion,
+                        anomaly_score_method="top1",
+                    )
+            except Exception as e:
+                logger.error("SubspaceAD pipeline inference failed:\n%s", traceback.format_exc())
+                raise RuntimeError(
+                    f"SubspaceAD 推理失败: {e}\n"
+                    f"Params: resolution={self.image_res}, layers={self.layers}, "
+                    f"fusion={self.layer_fusion}, sim_agg={self.similarity_aggregation}"
+                ) from e
+
+            # Extract outputs
+            anomaly_map_full = output.anomaly_map.squeeze().numpy()  # [H, W]
+            anomaly_score_raw = float(output.anomaly_score.item())
+
+            # Attention map (CLS-patch saliency — already at image resolution)
+            if output.attention_map is not None:
+                attention_map = output.attention_map.squeeze().numpy()  # [H, W]
+            else:
+                attention_map = None
+
+            # ── Step 2: Object localization using SubspaceAD attention map ──
+            if do_localize and loc_method != "none" and attention_map is not None:
+                loc_result = self._localizer.localize(
+                    test_img,
+                    saliency_map=attention_map,
+                    method=loc_method,
+                )
+                localization_info = {
+                    "bbox": list(loc_result.bbox),
+                    "confidence": round(loc_result.confidence, 4),
+                    "method": loc_result.method,
+                }
+
+                # ── Step 3: Crop ROI and re-run if requested ──
+                if do_crop and loc_result.is_valid and loc_result.method not in (
+                    "none", "saliency_fallback", "contour_fallback",
+                ):
+                    roi_img, roi_bbox = crop_to_roi(test_img, loc_result.bbox, margin=loc_margin)
+                    square_bbox = expand_bbox_square(roi_bbox, test_img.size)
+                    roi_square = test_img.crop((
+                        square_bbox[0], square_bbox[1],
+                        square_bbox[0] + square_bbox[2], square_bbox[1] + square_bbox[3],
+                    ))
+
+                    with torch.no_grad():
+                        roi_output: PatchEADOutput = self.pipeline(
+                            prompt_images=self.prompt_features,
+                            test_images=[roi_square],
+                            is_prompt_features=True,
+                            resolution=self.image_res,
+                            return_attentioned_anomaly_map=False,
+                            upsample_anomaly_map=True,
+                            upsample_resolution=(
+                                square_bbox[2], square_bbox[3],
+                            ),
+                            output_feature_maps_indices=self.layers,
+                            layer_fusion_method=self.layer_fusion,
+                            anomaly_score_method="top1",
+                        )
+
+                    roi_anomaly_map = roi_output.anomaly_map.squeeze().numpy()
+                    anomaly_map_full = map_anomaly_to_original(
+                        roi_anomaly_map, square_bbox, (img_h, img_w),
+                    )
+                    anomaly_map_full = cv2.resize(
+                        anomaly_map_full.astype(np.float32),
+                        (img_w, img_h),
+                        interpolation=cv2.INTER_LINEAR,
+                    )
+
+            # ── Post-processing ──
+            anomaly_map_normalized = min_max_norm(anomaly_map_full)
+
             flat_scores = anomaly_map_normalized.flatten()
             k = max(1, int(len(flat_scores) * top_k_ratio))
             top_k_mean = np.mean(np.sort(flat_scores)[-k:])
-            
+
             result = {
                 "image_name": test_name,
                 "anomaly_score": float(top_k_mean),
                 "anomaly_map": anomaly_map_normalized,
+                "attention_map": attention_map,
             }
-            
-            # 保存结果 - 只保存用户选择的可视化模式
+            if localization_info:
+                result["localization"] = localization_info
+
+            # ── Graph structure double-check (training-free) ──
+            if self._graph_ref_built and self._graph_checker is not None:
+                try:
+                    graph_result = self._graph_checker.check(
+                        anomaly_map=anomaly_map_normalized,
+                        img_size=(img_w, img_h),
+                    )
+                    result["graph_check"] = {
+                        "available": graph_result["available"],
+                        "structural_score": graph_result["structural_score"],
+                        "node_count": graph_result["node_count"],
+                    }
+
+                    if graph_result["available"]:
+                        fused = self._graph_checker.fuse_scores(
+                            subspace_score=float(top_k_mean),
+                            graph_result=graph_result,
+                        )
+                        result["fused_score"] = fused["final_score"]
+                        result["fusion_method"] = "graph_structure"
+                        result["structural_score"] = fused["structural_score"]
+                        if verbose:
+                            logger.info(
+                                "  Graph check: structural=%.4f fused=%.4f nodes=%d",
+                                fused["structural_score"], fused["final_score"],
+                                graph_result["node_count"],
+                            )
+                except Exception as e:
+                    logger.warning("Graph check skipped: %s", e)
+
+            # ── LayoutAD double-check (optional, requires trained weights) ──
+            if self._layoutad_engine is not None and self._layoutad_engine.available:
+                try:
+                    layout_result = self._layoutad_engine.check(
+                        image=test_img,
+                        dino_features=torch.zeros(0),
+                        attention_map=attention_map,
+                        anomaly_map=anomaly_map_normalized,
+                    )
+                    result["layoutad"] = {
+                        "available": layout_result["available"],
+                        "layout_score": layout_result["layout_score"],
+                        "node_count": layout_result["node_count"],
+                        "graph_built": layout_result["graph_built"],
+                    }
+
+                    if layout_result["available"] and layout_result["graph_built"]:
+                        fused = self._layoutad_engine.fuse_scores(
+                            subspace_score=float(top_k_mean),
+                            layout_result=layout_result,
+                        )
+                        # LayoutAD override if available (prioritize over graph check)
+                        result["fused_score"] = fused["final_score"]
+                        result["fusion_method"] = "layoutad_gnn"
+                        result["layout_score"] = fused["layout_score"]
+                        if verbose:
+                            logger.info(
+                                "  LayoutAD double-check: layout=%.4f fused=%.4f nodes=%d",
+                                fused["layout_score"], fused["final_score"],
+                                layout_result["node_count"],
+                            )
+                except Exception as e:
+                    logger.warning("LayoutAD double-check skipped: %s", e)
+
+            # Save visualizations
             if save_dir and save_visualizations:
-                # 保存自定义可视化结果（唯一需要的可视化）
                 try:
                     from .subspacead.utils.viz import save_custom_visualization
                     viz_path = save_custom_visualization(
@@ -340,150 +698,205 @@ class SubspaceAnomalyDetector:
                     )
                     result["viz_path"] = viz_path
                 except Exception as e:
-                    logger.warning(f"Failed to save custom visualization: {e}")
-            
+                    logger.warning("Failed to save visualization: %s", e)
+
             results.append(result)
-            
+
             if verbose:
-                status = "⚠️  ANOMALY" if result["anomaly_score"] > 0.3 else "✅ Normal"
-                logger.info(
-                    f"[{i+1}/{len(imgs)}] {test_name}: "
-                    f"Score={result['anomaly_score']:.4f} ({status})"
+                status = "⚠️  ANOMALY" if result["anomaly_score"] > self.threshold else "✅ Normal"
+                loc_str = (
+                    f" | ROI: {localization_info['bbox']}"
+                    if localization_info else ""
                 )
-        
+                logger.info(
+                    "[%d/%d] %s: Score=%.4f (%s)%s",
+                    i + 1, len(imgs), test_name,
+                    result["anomaly_score"], status, loc_str,
+                )
+
         if verbose:
             logger.info("=" * 60)
-            logger.info("📊 Detection Summary:")
-            for result in results:
-                score = result["anomaly_score"]
-                status = "⚠️  ANOMALY" if score > 0.3 else "✅ Normal"
-                logger.info(f"{result['image_name']:20s} | Score: {score:.4f} | {status}")
+            logger.info("📊 Detection Summary (SubspaceAD):")
+            for r in results:
+                s = r["anomaly_score"]
+                st = "⚠️ ANOMALY" if s > self.threshold else "✅ Normal"
+                logger.info("%-20s | Score: %.4f | %s", r["image_name"], s, st)
             logger.info("=" * 60)
-        
+
         return results
-    
+
+    # ============================================================
+    # Single Image Detection
+    # ============================================================
+
     def detect_single(
         self,
         image: Union[str, Image.Image],
         return_heatmap: bool = False,
         verbose: bool = True,
+        enable_localization: Optional[bool] = None,
+        localization_method: Optional[str] = None,
+        crop_to_roi: Optional[bool] = None,
     ) -> Union[float, Tuple[float, np.ndarray]]:
-        """
-        单张图像快速检测
-        
-        Args:
-            image: 图像路径或 PIL Image
-            return_heatmap: 是否返回异常热力图
-            verbose: 是否打印日志
-            
-        Returns:
-            异常分数，或 (异常分数，热力图) 如果 return_heatmap=True
-        """
+        """单张图像快速检测。"""
         if isinstance(image, str):
             imgs = [Image.open(image).convert("RGB")]
         else:
             imgs = [image]
-        
-        results = self.detect(imgs, verbose=verbose)
+
+        results = self.detect(
+            imgs, verbose=verbose,
+            enable_localization=enable_localization,
+            localization_method=localization_method,
+            crop_to_roi=crop_to_roi,
+        )
         result = results[0]
-        
+
         if return_heatmap:
             return result["anomaly_score"], result["anomaly_map"]
-        else:
-            return result["anomaly_score"]
-    
+        return result["anomaly_score"]
+
+    # ============================================================
+    # Threshold Management
+    # ============================================================
+
     def set_threshold(self, threshold: float = 0.3):
-        """
-        设置异常判定阈值
-        
-        Args:
-            threshold: 异常分数阈值（默认 0.3）
-        """
         self.threshold = threshold
-        logger.info(f"Anomaly threshold set to: {threshold}")
-    
+        logger.info("Anomaly threshold set to: %s", threshold)
+
     def is_anomaly(self, score: float) -> bool:
-        """
-        判断分数是否为异常
-        
+        return score > self.threshold
+
+    # ============================================================
+    # Video Detection
+    # ============================================================
+
+    def detect_video(
+        self,
+        video_path: str,
+        sample_every_n_frames: int = 10,
+        max_frames: int = 200,
+        verbose: bool = True,
+    ) -> List[Dict]:
+        """Analyze a video file frame-by-frame for anomalies.
+
+        Extracts frames at regular intervals, runs SubspaceAD detection on each,
+        and returns per-frame scores plus a summary.
+
         Args:
-            score: 异常分数
-            
+            video_path: Path to video file
+            sample_every_n_frames: Process every Nth frame (default 10)
+            max_frames: Maximum number of frames to process
+            verbose: Print progress
+
         Returns:
-            是否为异常
-        """
-        threshold = getattr(self, "threshold", 0.3)
-        return score > threshold
-    
-    def export_model(self, save_path: str):
-        """
-        导出模型参数（用于部署）
-        
-        Args:
-            save_path: 保存路径
+            List of per-frame result dicts with: frame_idx, timestamp_sec,
+            anomaly_score, is_anomaly. Also includes a "_summary" entry at the end.
         """
         if not self.is_trained:
-            raise RuntimeError("请先训练模型")
-        
-        model_data = {
-            "model_ckpt": self.model_ckpt,
-            "image_res": self.image_res,
-            "pca_ev": self.pca_ev,
-            "pca_params": self.pca_params,
-            "layers_config": self.layers_config,
-            "agg_method": self.agg_method,
-            "score_method": self.score_method,
-            "drop_k": self.drop_k,
+            raise RuntimeError("请先调用 train() 方法构建记忆库")
+        self._ensure_model()
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            raise RuntimeError(f"Cannot open video: {video_path}")
+
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        if verbose:
+            logger.info(
+                "🎬 Video: %d frames @ %.1f fps, sampling every %d frames (max %d)",
+                total_frames, fps, sample_every_n_frames, max_frames,
+            )
+
+        results = []
+        frame_idx = 0
+        processed = 0
+
+        while processed < max_frames:
+            ret, frame_bgr = cap.read()
+            if not ret:
+                break
+            frame_idx += 1
+
+            if frame_idx % sample_every_n_frames != 0:
+                continue
+
+            # Convert BGR → PIL RGB
+            frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
+            pil_img = Image.fromarray(frame_rgb)
+            timestamp = frame_idx / fps
+
+            try:
+                det_results = self.detect(
+                    [pil_img],
+                    enable_localization=False,
+                    crop_to_roi=False,
+                    verbose=False,
+                )
+                r = det_results[0]
+            except Exception as e:
+                logger.warning("Frame %d failed: %s", frame_idx, e)
+                continue
+
+            results.append({
+                "frame_idx": frame_idx,
+                "timestamp_sec": round(timestamp, 2),
+                "anomaly_score": r["anomaly_score"],
+                "is_anomaly": r["anomaly_score"] > self.threshold,
+            })
+            processed += 1
+
+            if verbose and processed % 20 == 0:
+                logger.info("  Processed %d frames...", processed)
+
+        cap.release()
+
+        if not results:
+            return results
+
+        scores = [r["anomaly_score"] for r in results]
+        max_score = max(scores)
+        max_frame = results[scores.index(max_score)]
+        anomaly_frames = [r for r in results if r["is_anomaly"]]
+
+        summary = {
+            "_summary": True,
+            "total_frames_scanned": len(results),
+            "max_anomaly_score": max_score,
+            "max_anomaly_frame": max_frame["frame_idx"],
+            "max_anomaly_timestamp": max_frame["timestamp_sec"],
+            "anomaly_frame_count": len(anomaly_frames),
+            "anomaly_ratio": round(len(anomaly_frames) / len(results), 4),
+            "mean_score": round(sum(scores) / len(scores), 6),
+            "fps": fps,
+            "sample_interval": sample_every_n_frames,
         }
-        
-        torch.save(model_data, save_path)
-        logger.info(f"Model exported to: {save_path}")
-    
-    def load_model(self, load_path: str, init_extractor: bool = True):
-        """
-        加载模型参数
-        
-        Args:
-            load_path: 模型路径
-            init_extractor: 是否初始化特征提取器
-        """
-        model_data = torch.load(load_path, map_location=self.device)
-        
-        self.model_ckpt = model_data["model_ckpt"]
-        self.image_res = model_data["image_res"]
-        self.pca_ev = model_data["pca_ev"]
-        self.pca_params = model_data["pca_params"]
-        self.layers_config = model_data["layers_config"]
-        self.agg_method = model_data["agg_method"]
-        self.score_method = model_data["score_method"]
-        self.drop_k = model_data["drop_k"]
-        
-        if init_extractor:
-            self.extractor = FeatureExtractor(self.model_ckpt)
-        
-        self.is_trained = True
-        logger.info(f"Model loaded from: {load_path}")
+
+        results.append(summary)
+
+        if verbose:
+            logger.info(
+                "📊 Video summary: %d frames | max score %.4f (frame %d @ %.1fs) | %d/%d anomalous",
+                len(results) - 1, max_score, max_frame["frame_idx"],
+                max_frame["timestamp_sec"], len(anomaly_frames), len(results) - 1,
+            )
+
+        return results
 
 
-# 便捷函数
+# ============================================================
+# Convenience Function
+# ============================================================
+
 def create_detector(
-    model: str = None,
-    resolution: int = 512,
-    **kwargs
+    model_path: Optional[str] = None,
+    resolution: int = 448,
+    **kwargs,
 ) -> SubspaceAnomalyDetector:
-    """
-    快速创建检测器实例
-
-    Args:
-        model: 模型路径，为 None 则使用本地 weights/
-        resolution: 分辨率
-        **kwargs: 其他参数传递给 SubspaceAnomalyDetector
-
-    Returns:
-        SubspaceAnomalyDetector 实例
-    """
+    """快速创建检测器实例。"""
     return SubspaceAnomalyDetector(
-        model_ckpt=model,
+        model_path=model_path,
         image_res=resolution,
-        **kwargs
+        **kwargs,
     )

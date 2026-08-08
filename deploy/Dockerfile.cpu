@@ -2,27 +2,36 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libgl1 libglib2.0-0 \
+# ── System deps ──
+RUN sed -i 's|http://deb.debian.org|http://mirrors.tuna.tsinghua.edu.cn|g; s|http://security.debian.org|http://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null; \
+    apt-get update && apt-get install -y --no-install-recommends \
+    libgl1 libglib2.0-0 git \
     && rm -rf /var/lib/apt/lists/*
 
-# Install CPU-only PyTorch first
-RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# ── PyTorch CPU via Tsinghua mirror ──
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple && \
+    pip install --no-cache-dir torch torchvision
 
-# Install remaining deps (skip torch/torchvision)
+# ── Python deps ──
 COPY requirements.txt .
 RUN sed -i '/^torch/d; /^torchvision/d' requirements.txt && \
-    pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt
 
-# 提前拷贝模型下载器 + Token，构建时预下载
-COPY models/model_downloader.py ./models/model_downloader.py
-COPY ModelScope_token ./ModelScope_token
-RUN mkdir -p /app/weights && \
-    python -c "from models.model_downloader import ensure_weights; ensure_weights()"
+# ── torch_geometric (for LayoutAD) ──
+RUN pip install --no-cache-dir torch-scatter torch-geometric || true
 
-# 其余代码
+# ── ad-pipelines (DuoAD) ──
+# 从仓库内 vendor/ad-pipelines 构建（含 coreset/knn 改动），不依赖 GitHub clone。
+COPY vendor/ad-pipelines /tmp/ad-pipelines
+RUN cd /tmp/ad-pipelines && pip install --no-cache-dir . && rm -rf /tmp/ad-pipelines
+
+# ── App code ──
 COPY . .
+
+# Entrypoint: auto-download model at startup, then launch uvicorn
+COPY scripts/docker_entrypoint.sh /docker_entrypoint.sh
+RUN chmod +x /docker_entrypoint.sh
 
 EXPOSE 8704
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8704"]
+ENTRYPOINT ["/docker_entrypoint.sh"]

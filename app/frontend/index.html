@@ -1,556 +1,1405 @@
 <!DOCTYPE html>
-<html lang="zh-CN" data-theme="dark">
+<html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SubspaceAD — 异常检测</title>
+<title>深瞳 · 工业异常检测</title>
 <style>
 /* ============================================================
-   MeSquare Theme Variables
+   深瞳 HMI — 工业SCADA风格设计系统
    ============================================================ */
-:root, [data-theme="dark"] {
-  --bg-base: #0c0c0c;
-  --bg-elevated: #111114;
-  --surface-1: #161618;
-  --surface-2: #1c1c20;
-  --surface-3: #232328;
-  --text-primary: #f0f0f5;
-  --text-secondary: rgba(255,255,255,0.55);
-  --text-tertiary: rgba(255,255,255,0.3);
-  --border: rgba(255,255,255,0.08);
-  --border-hover: rgba(255,255,255,0.14);
-  --accent: #818cf8;
-  --accent-hover: #a5b4fc;
-  --accent-subtle: rgba(129,140,248,0.1);
-  --success: #6dcba1;
-  --success-subtle: rgba(109,203,161,0.12);
-  --warning: #e4b55e;
-  --warning-subtle: rgba(228,181,94,0.12);
-  --error: #e87272;
-  --error-subtle: rgba(232,114,114,0.12);
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --shadow-sm: 0 2px 8px rgba(0,0,0,0.4);
-  --shadow-md: 0 8px 32px rgba(0,0,0,0.5);
-  --input-bg: #1c1c20;
+:root {
+  --bg: #141618; --bg2: #1b1e21; --surface: #202327; --surface2: #272a2e; --surface3: #2f3237;
+  --border: #36393f; --border2: #44474d; --text: #d2d4d8; --text2: #93969b; --text3: #5c5f64;
+  --cyan: #00a8cc; --cyan2: #0088a8; --cyan-dim: rgba(0,168,204,0.10); --cyan-glow: rgba(0,168,204,0.20);
+  --orange: #f08820; --orange-dim: rgba(240,136,32,0.12);
+  --green: #28b850; --green-dim: rgba(40,184,80,0.10);
+  --red: #e04048; --red-dim: rgba(224,64,72,0.12);
+  --white: #f0f1f3;
+  --font: "Inter", "Segoe UI", "Microsoft YaHei", sans-serif;
+  --mono: "JetBrains Mono", "SF Mono", "Consolas", monospace;
+  --gap: 6px;
 }
-[data-theme="light"] {
-  --bg-base: #f5f4f1;
-  --bg-elevated: #faf9f7;
-  --surface-1: #ffffff;
-  --surface-2: #efeee9;
-  --surface-3: #e7e5e0;
-  --text-primary: #2c2c2c;
-  --text-secondary: #636363;
-  --text-tertiary: #919191;
-  --border: #ddd9d3;
-  --border-hover: #c5c0b8;
-  --accent: #6366f1;
-  --accent-hover: #4f46e5;
-  --accent-subtle: rgba(99,102,241,0.08);
-  --success: #3d9e6f;
-  --success-subtle: rgba(61,158,111,0.1);
-  --warning: #c08a2e;
-  --warning-subtle: rgba(192,138,46,0.1);
-  --error: #c94a4a;
-  --error-subtle: rgba(201,74,74,0.1);
-  --shadow-sm: 0 2px 8px rgba(0,0,0,0.06);
-  --shadow-md: 0 8px 32px rgba(0,0,0,0.08);
-  --input-bg: #ffffff;
-}
-* { margin: 0; padding: 0; box-sizing: border-box; }
+* { margin:0; padding:0; box-sizing:border-box; }
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  background: var(--bg-base); color: var(--text-primary);
-  line-height: 1.6; min-height: 100vh;
+  font-family: var(--font); font-size: 12px; font-weight: 400;
+  background: var(--bg); color: var(--text); height: 100vh; overflow: hidden;
+  display: flex; flex-direction: column; -webkit-font-smoothing: antialiased;
 }
 
-/* ============================================================
-   Header
-   ============================================================ */
-header {
-  background: var(--bg-elevated); border-bottom: 1px solid var(--border);
-  padding: 16px 24px; display: flex; align-items: center; justify-content: space-between;
-  box-shadow: var(--shadow-sm);
+/* Top bar */
+.topbar {
+  height: 40px; background: var(--bg2); border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 16px; gap: 12px; flex-shrink: 0;
 }
-header h1 { font-size: 1.25rem; font-weight: 600; }
-header h1 span { color: var(--accent); }
-header .sub { font-size: 0.8rem; color: var(--text-tertiary); }
-.theme-toggle {
-  background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius-sm);
-  padding: 6px 12px; cursor: pointer; font-size: 1.1rem; color: var(--text-primary);
-  transition: border-color 0.2s;
-}
-.theme-toggle:hover { border-color: var(--border-hover); }
+.topbar .brand { font-size: 14px; font-weight: 700; letter-spacing: 1px; color: var(--cyan); }
+.topbar .sep { width: 1px; height: 20px; background: var(--border); opacity: 0.6; }
+.topbar .metric { font-size: 10px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+.topbar .metric b { color: var(--text); font-family: var(--mono); font-size: 11px; font-weight: 500; }
+.topbar .metric .dot { width: 7px; height: 7px; border-radius: 50%; display: inline-block; }
+.topbar .metric .dot.on { background: var(--green); box-shadow: 0 0 5px rgba(40,184,80,0.5); }
+.topbar .metric .dot.off { background: var(--orange); box-shadow: 0 0 5px rgba(240,136,32,0.3); }
+.topbar .push { margin-left: auto; }
 
-/* ============================================================
-   Layout
-   ============================================================ */
-main { max-width: 1000px; margin: 0 auto; padding: 24px; }
-.card {
-  background: var(--surface-1); border: 1px solid var(--border);
-  border-radius: var(--radius-md); padding: 20px; margin-bottom: 20px;
-  box-shadow: var(--shadow-sm);
+/* App shell: sidebar + main */
+.app-shell { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+
+/* Sidebar */
+.sidebar {
+  width: 195px; background: var(--bg2); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0; padding: 10px 0;
 }
-.card h2 { font-size: 0.85rem; color: var(--text-secondary); margin-bottom: 14px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.5px; }
+.sidebar .nav-group { padding: 0 8px; }
+.sidebar .nav-label {
+  font-size: 9px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 1px; color: var(--text3); padding: 10px 8px 6px;
+}
+.sidebar .nav-item {
+  display: flex; align-items: center; gap: 9px; padding: 7px 10px; margin-bottom: 2px;
+  font-size: 12px; color: var(--text2); cursor: pointer; border: 1px solid transparent;
+  transition: all 0.18s ease; font-family: var(--font); text-decoration: none;
+  border-radius: 3px;
+}
+.sidebar .nav-item:hover { color: var(--white); background: var(--surface); border-color: var(--border); }
+.sidebar .nav-item.active { color: var(--cyan); background: var(--cyan-dim); border-color: rgba(0,168,204,0.3); }
+.sidebar .nav-item .nav-icon { font-size: 14px; width: 22px; text-align: center; opacity: 0.7; }
+.sidebar .nav-item.active .nav-icon { opacity: 1; }
+.sidebar .nav-spacer { flex: 1; }
+.sidebar .sys-block { padding: 10px 12px; border-top: 1px solid var(--border); font-size: 9px; color: var(--text3); }
+.sidebar .sys-block .kv { display: flex; justify-content: space-between; margin-bottom: 3px; }
+.sidebar .sys-block .kv span:last-child { color: var(--text2); font-family: var(--mono); }
+
+/* Main content area */
+.main-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+.page { display: none; flex: 1; overflow: hidden; flex-direction: column; }
+.page.active { display: flex; }
+
+/* Page: 2-panel layout (inspect, batch, live) */
+.page-2col { display: none; }
+.page-2col.active { display: grid; }
+.page-2col { grid-template-columns: 280px 1fr; height: 100%; gap: var(--gap); padding: var(--gap); }
+.page-full { display: none; flex-direction: column; height: 100%; padding: var(--gap); gap: var(--gap); }
+.page-full.active { display: flex; }
+
+/* Panels */
+.panel {
+  background: var(--bg2); border: 1px solid var(--border);
+  display: flex; flex-direction: column; overflow: hidden;
+  border-radius: 2px;
+}
+.panel-hdr {
+  padding: 7px 12px; background: var(--surface); border-bottom: 1px solid var(--border);
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.8px; color: var(--text2); display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
+.panel-hdr .indicator { width: 7px; height: 7px; border-radius: 2px; flex-shrink: 0; }
+.panel-hdr .indicator.cyan { background: var(--cyan); box-shadow: 0 0 6px var(--cyan-glow); }
+.panel-hdr .indicator.orange { background: var(--orange); box-shadow: 0 0 6px rgba(240,136,32,0.3); }
+.panel-hdr .indicator.green { background: var(--green); box-shadow: 0 0 6px rgba(40,184,80,0.3); }
+.panel-body {
+  flex: 1; overflow-y: auto; overflow-x: hidden; padding: 10px;
+  scrollbar-width: thin; scrollbar-color: var(--border) transparent;
+}
+.panel-body::-webkit-scrollbar { width: 5px; }
+.panel-body::-webkit-scrollbar-track { background: transparent; }
+.panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+.panel-body::-webkit-scrollbar-thumb:hover { background: var(--border2); }
+
+/* Form elements */
+.fg { margin-bottom: 8px; }
+.fg label {
+  display: block; font-size: 9px; font-weight: 600; margin-bottom: 3px;
+  color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px;
+}
+.fg-r { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+select, input[type="number"], input[type="text"] {
+  width: 100%; padding: 5px 7px; border: 1px solid var(--border);
+  font-size: 10px; background: var(--surface3); color: var(--text);
+  font-family: var(--mono); outline: none; border-radius: 1px;
+  transition: border-color 0.15s;
+}
+select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan-dim); }
 .btn {
-  padding: 10px 0; border: none; border-radius: var(--radius-sm);
-  font-size: 14px; font-weight: 500; cursor: pointer;
-  transition: all 0.2s; width: 100%;
+  padding: 6px 14px; border: 1px solid var(--border); font-size: 10px; font-weight: 500;
+  cursor: pointer; font-family: var(--font); letter-spacing: 0.3px;
+  transition: all 0.18s ease; text-align: center; border-radius: 2px;
 }
-.btn-primary { background: var(--accent); color: #fff; }
-.btn-primary:hover { background: var(--accent-hover); }
-.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
-.btn-danger { background: var(--error-subtle); color: var(--error); border: 1px solid var(--error); }
-.btn-danger:hover { background: rgba(232,114,114,0.2); }
-.btn-loading { position: relative; color: transparent; }
+.btn-p { background: var(--cyan); border-color: var(--cyan); color: #000; font-weight: 600; }
+.btn-p:hover { background: #00b8dc; border-color: #00b8dc; }
+.btn-p:disabled { opacity: 0.35; cursor: not-allowed; filter: grayscale(30%); }
+.btn-g { background: var(--surface2); color: var(--text2); }
+.btn-g:hover { background: var(--surface3); border-color: var(--border2); color: var(--text); }
+.btn-danger { background: var(--red-dim); border-color: var(--red); color: var(--red); }
+.btn-danger:hover { background: rgba(224,64,72,0.22); }
+.btn-loading { position: relative; color: transparent !important; }
 .btn-loading::after {
-  content: ""; position: absolute; left: 50%; top: 50%;
-  width: 18px; height: 18px; margin: -9px 0 0 -9px;
-  border: 2px solid rgba(255,255,255,0.3);
-  border-top-color: #fff; border-radius: 50%; animation: spin 0.6s linear infinite;
+  content: ""; position: absolute; left: 50%; top: 50%; width: 11px; height: 11px; margin: -5px 0 0 -5px;
+  border: 2px solid rgba(0,0,0,0.25); border-top-color: #000; border-radius: 50%; animation: spin 0.6s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+.btn-row { display: flex; gap: 5px; margin-top: 8px; }
+.tip {
+  font-size: 10px; color: var(--cyan); padding: 6px 8px; line-height: 1.6;
+  background: var(--cyan-dim); border-left: 2px solid var(--cyan); margin-bottom: 8px;
+}
+.toggle-r { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.toggle-r label { font-size: 10px; color: var(--text2); cursor: pointer; user-select: none; }
+.toggle-s { position: relative; width: 30px; height: 15px; flex-shrink: 0; }
+.toggle-s input { opacity: 0; width: 0; height: 0; }
+.toggle-s .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background: var(--surface3); border-radius: 15px; transition: 0.2s ease; }
+.toggle-s .slider:before { content: ""; position: absolute; height: 9px; width: 9px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: 0.2s ease; }
+.toggle-s input:checked + .slider { background: var(--cyan); }
+.toggle-s input:checked + .slider:before { transform: translateX(15px); }
+.drop-z {
+  border: 1px dashed var(--border2); padding: 14px; text-align: center; cursor: pointer;
+  transition: all 0.2s ease; position: relative; margin-bottom: 8px; background: transparent;
+  border-radius: 2px;
+}
+.drop-z:hover { border-color: var(--cyan); background: var(--cyan-dim); border-style: solid; }
+.drop-z-text { font-size: 10px; color: var(--text2); }
+.drop-z-hint { font-size: 9px; color: var(--text3); margin-top: 3px; }
+.drop-z input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.drop-z.has { border-style: solid; border-color: var(--green); background: var(--green-dim); }
+.drop-z.has .drop-z-text { color: var(--green); }
+.file-n { font-size: 10px; color: var(--green); margin-top: 3px; font-family: var(--mono); }
 
-/* ============================================================
-   Form Controls
-   ============================================================ */
-.form-group { margin-bottom: 14px; }
-.form-group label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 4px; color: var(--text-secondary); }
-.form-row { display: flex; gap: 12px; flex-wrap: wrap; }
-.form-row .form-group { flex: 1; min-width: 140px; }
-select, input[type="number"], input[type="file"] {
-  width: 100%; padding: 8px 12px; border: 1px solid var(--border); border-radius: 6px;
-  font-size: 14px; background: var(--input-bg); color: var(--text-primary);
+/* Camera view */
+.cam-view {
+  position: relative; flex: 1; background: #0a0a0c;
+  display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
-select:focus, input:focus { outline: none; border-color: var(--accent); }
-input[type="file"] { padding: 6px; }
-.file-list { font-size: 12px; color: var(--text-tertiary); margin-top: 4px; }
-.btn-group { display: flex; gap: 8px; margin-top: 16px; }
-.btn-group .btn { width: auto; padding: 8px 20px; }
+.cam-view img, .cam-view video { width: 100%; height: 100%; object-fit: contain; }
+.cam-view .empty-state { text-align: center; color: var(--text3); display: flex; flex-direction: column; align-items: center; gap: 10px; }
+.cam-view .empty-state .icon { font-size: 40px; opacity: 0.1; }
+.cam-view .empty-state .msg { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; }
+.cam-hud { position: absolute; pointer-events: none; font-family: var(--mono); }
+.cam-hud .roi-box {
+  border: 2px solid var(--cyan); position: absolute;
+  box-shadow: 0 0 8px var(--cyan-glow), inset 0 0 8px var(--cyan-glow);
+}
+.cam-hud .roi-label { position: absolute; top: -18px; left: 0; background: var(--cyan); color: #000; font-size: 9px; font-weight: 700; padding: 1px 6px; }
+.cam-status {
+  position: absolute; top: 8px; right: 10px; font-family: var(--mono); font-size: 9px;
+  padding: 3px 8px; background: rgba(0,0,0,0.75); border: 1px solid var(--border);
+  color: var(--text2); pointer-events: none; border-radius: 1px;
+}
+.view-modes { display: flex; gap: 2px; }
+.view-mode {
+  padding: 3px 10px; font-size: 9px; font-weight: 500; cursor: pointer;
+  background: transparent; border: 1px solid transparent; color: var(--text3);
+  font-family: var(--font); letter-spacing: 0.4px; transition: all 0.18s ease;
+}
+.view-mode.active { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); }
+.view-mode:hover { color: var(--text2); border-color: var(--border); }
 
-/* ============================================================
-   Status Bar
-   ============================================================ */
-.status-bar {
-  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-  padding: 12px 16px; border-radius: var(--radius-sm); font-size: 13px; margin-bottom: 16px;
+/* Live detection toolbar */
+.wc-toolbar { position: absolute; top: 6px; left: 8px; z-index: 10; display: flex; gap: 4px; align-items: center; }
+.wc-src-tabs { display: flex; gap: 1px; }
+.wc-src-tab {
+  padding: 3px 8px; font-size: 9px; cursor: pointer; background: rgba(0,0,0,0.65);
+  border: 1px solid var(--border); color: var(--text2); font-family: var(--font); transition: all 0.12s;
 }
-.status-bar.untrained { background: var(--warning-subtle); color: var(--warning); border: 1px solid var(--warning); }
-.status-bar.trained { background: var(--success-subtle); color: var(--success); border: 1px solid var(--success); }
-.status-bar .dot {
-  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-  flex-shrink: 0;
+.wc-src-tab.active { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); }
+.wc-src-tab:hover { color: var(--text); }
+.wc-cam-select {
+  padding: 3px 4px; font-size: 9px; background: rgba(0,0,0,0.65);
+  border: 1px solid var(--border); color: var(--text); font-family: var(--font);
+  outline: none; cursor: pointer; max-width: 140px;
 }
-.untrained .dot { background: var(--warning); }
-.trained .dot { background: var(--success); }
+.wc-video-drop {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  border: 1px dashed var(--border2); padding: 20px 30px; text-align: center; cursor: pointer; transition: all 0.12s; z-index: 5;
+}
+.wc-video-drop:hover { border-color: var(--cyan); background: var(--cyan-dim); }
+.wc-video-drop-text { font-size: 11px; color: var(--text2); }
+.wc-video-drop-hint { font-size: 8px; color: var(--text3); margin-top: 3px; }
 
-/* ============================================================
-   Results
-   ============================================================ */
-.result-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.result-card {
-  background: var(--surface-1); border: 1px solid var(--border);
-  border-radius: var(--radius-md); overflow: hidden;
+/* Data blocks */
+.data-block { margin-bottom: 12px; }
+.data-block .title {
+  font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--text3); margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid var(--border);
 }
-.result-card .card-label {
-  font-size: 11px; font-weight: 500; color: var(--text-secondary);
-  padding: 8px 12px; background: var(--surface-2); border-bottom: 1px solid var(--border);
-  text-transform: uppercase; letter-spacing: 0.5px;
+.kv-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.02); font-size: 10px;
 }
-.result-card img { display: block; width: 100%; height: auto; }
-.score-display {
-  text-align: center; padding: 24px;
-  background: var(--surface-1); border: 1px solid var(--border);
-  border-radius: var(--radius-md); margin-bottom: 16px;
+.kv-row .kv { color: var(--text3); }
+.kv-row .vv { font-family: var(--mono); font-weight: 500; color: var(--text); }
+.kv-row .vv.ok { color: var(--green); } .kv-row .vv.warn { color: var(--orange); } .kv-row .vv.err { color: var(--red); }
+.big-value { font-family: var(--mono); font-size: 34px; font-weight: 700; line-height: 1; letter-spacing: -1px; }
+.big-value.ok { color: var(--green); } .big-value.warn { color: var(--orange); } .big-value.err { color: var(--red); }
+.big-label { font-size: 9px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+.tag { display: inline-block; padding: 2px 7px; font-size: 8px; font-weight: 600; text-transform: uppercase; font-family: var(--mono); border-radius: 1px; }
+.tag.ok { background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
+.tag.err { background: var(--red-dim); color: var(--red); border: 1px solid var(--red); }
+.tag.warn { background: var(--orange-dim); color: var(--orange); border: 1px solid var(--orange); }
+.mini-tbl { width: 100%; border-collapse: collapse; font-size: 9px; }
+.mini-tbl th {
+  text-align: left; padding: 4px 6px; color: var(--text3); font-weight: 500;
+  border-bottom: 1px solid var(--border); font-size: 8px; text-transform: uppercase; letter-spacing: 0.4px;
 }
-.score-display .score-value { font-size: 48px; font-weight: 700; letter-spacing: -1px; }
-.score-display .score-label { font-size: 13px; color: var(--text-secondary); margin-top: 4px; }
-.score-status {
-  display: inline-block; margin-top: 8px; padding: 4px 16px; border-radius: 12px;
-  font-size: 14px; font-weight: 500;
+.mini-tbl td { padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,0.03); font-family: var(--mono); font-size: 9px; }
+.mini-tbl tr:hover td { background: rgba(255,255,255,0.03); }
+.bar-chart { display: flex; align-items: flex-end; gap: 2px; height: 70px; }
+.bar-chart .bar { flex: 1; min-width: 2px; border-radius: 1px 1px 0 0; transition: height 0.3s; }
+.bar-labels { display: flex; justify-content: space-around; font-size: 7px; color: var(--text3); margin-top: 3px; font-family: var(--mono); }
+.prog-bar { width: 100%; height: 4px; background: var(--surface3); margin-top: 4px; overflow: hidden; border-radius: 2px; }
+.prog-bar .fill { height: 100%; background: var(--cyan); transition: width 0.3s ease; border-radius: 2px; }
+.err-msg {
+  background: var(--red-dim); color: var(--red); padding: 5px 8px; font-size: 9px;
+  margin-top: 6px; display: none; border: 1px solid var(--red); font-family: var(--mono);
+  border-radius: 1px;
 }
-.score-status.normal { background: var(--success-subtle); color: var(--success); }
-.score-status.anomaly { background: var(--error-subtle); color: var(--error); }
+.err-msg.show { display: block; }
 
-/* ============================================================
-   Toast
-   ============================================================ */
+/* Toast */
+.toast-wrap { position: fixed; bottom: 12px; right: 12px; z-index: 9999; display: flex; flex-direction: column; gap: 3px; pointer-events: none; }
 .toast {
-  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-  background: var(--surface-1); color: var(--text-primary);
-  border: 1px solid var(--border);
-  padding: 10px 24px; border-radius: var(--radius-sm);
-  font-size: 13px; z-index: 999; opacity: 0; transition: opacity 0.3s;
-  pointer-events: none; box-shadow: var(--shadow-md);
+  background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+  padding: 6px 14px; font-size: 10px; font-family: var(--mono);
+  transform: translateX(120%); transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  max-width: 320px; border-radius: 2px; pointer-events: auto;
 }
-.toast.show { opacity: 1; }
-.hidden { display: none; }
+.toast.show { transform: translateX(0); }
+.toast.ok { border-left: 3px solid var(--green); }
+.toast.err { border-left: 3px solid var(--red); }
+.toast.warn { border-left: 3px solid var(--orange); }
 
 /* ============================================================
-   Error
+   WORKFLOW PAGE
    ============================================================ */
-.error-msg {
-  background: var(--error-subtle); color: var(--error);
-  padding: 10px 14px; border-radius: 6px; font-size: 13px;
-  margin-top: 12px; display: none; border: 1px solid var(--error);
+.wf-layout { display: flex; flex-direction: column; height: 100%; padding: 16px 24px; gap: 12px; }
+.wf-stepper { display: flex; align-items: center; justify-content: center; flex-shrink: 0; padding: 8px 0 20px; }
+.wf-step { display: flex; align-items: center; gap: 10px; }
+.wf-step-num {
+  width: 30px; height: 30px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 700; font-family: var(--mono);
+  border: 2px solid var(--border); color: var(--text3); background: var(--surface);
+  transition: all 0.25s ease;
 }
-.error-msg.show { display: block; }
+.wf-step.done .wf-step-num { border-color: var(--green); background: var(--green); color: #000; }
+.wf-step.current .wf-step-num { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); box-shadow: 0 0 12px var(--cyan-glow); }
+.wf-step-label { font-size: 11px; color: var(--text3); font-weight: 500; }
+.wf-step.done .wf-step-label { color: var(--green); }
+.wf-step.current .wf-step-label { color: var(--cyan); font-weight: 600; }
+.wf-step-line { width: 48px; height: 1px; background: var(--border); margin: 0 10px; transition: background 0.25s; }
+.wf-step.done + .wf-step-line { background: var(--green); }
+.wf-content { flex: 1; display: flex; gap: 12px; overflow: hidden; min-height: 0; }
+.wf-left { width: 310px; flex-shrink: 0; overflow-y: auto; }
+.wf-right { flex: 1; background: #0a0a0c; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; border-radius: 2px; }
+.wf-right img { width: 100%; height: 100%; object-fit: contain; }
+.wf-right .empty { text-align: center; color: var(--text3); }
+.wf-right .empty .icon { font-size: 44px; opacity: 0.08; }
+.wf-actions { display: flex; gap: 6px; margin-top: 10px; }
+.wf-summary { background: var(--surface); border: 1px solid var(--border); padding: 10px 12px; margin-top: 10px; font-size: 9px; border-radius: 2px; }
+.wf-summary .row { display: flex; justify-content: space-between; padding: 3px 0; }
+.wf-summary .row .l { color: var(--text3); }
+.wf-summary .row .v { font-family: var(--mono); color: var(--text); }
 
-@media (max-width: 700px) {
-  main { padding: 16px; }
-  .result-grid { grid-template-columns: 1fr; }
-  .form-row .form-group { min-width: 100%; }
+/* ============================================================
+   DASHBOARD (总览)
+   ============================================================ */
+.wf-dash { display: flex; flex-direction: column; height: 100%; padding: 16px 20px; gap: 12px; overflow-y: auto; }
+.dash-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; flex-shrink: 0; }
+.dash-card {
+  background: var(--bg2); border: 1px solid var(--border); padding: 16px;
+  display: flex; align-items: flex-start; gap: 12px; border-radius: 3px;
+  transition: border-color 0.2s;
+}
+.dash-card:hover { border-color: var(--border2); }
+.dash-card-icon { font-size: 24px; flex-shrink: 0; opacity: 0.8; }
+.dash-card-body { flex: 1; min-width: 0; }
+.dash-card-title { font-size: 11px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.dash-card-status {
+  font-size: 9px; font-weight: 600; text-transform: uppercase; font-family: var(--mono);
+  padding: 2px 8px; display: inline-block; border-radius: 2px; margin-bottom: 4px;
+}
+.dash-card-status.on { background: var(--green-dim); color: var(--green); border: 1px solid var(--green); }
+.dash-card-status.off { background: var(--orange-dim); color: var(--orange); border: 1px solid var(--orange); }
+.dash-card-detail { font-size: 9px; color: var(--text3); font-family: var(--mono); line-height: 1.4; }
+
+/* Pipeline */
+.dash-pipeline {
+  background: var(--bg2); border: 1px solid var(--border); padding: 16px 20px; flex-shrink: 0; border-radius: 3px;
+}
+.dash-pipeline-title { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text3); margin-bottom: 12px; }
+.dash-pipeline-steps { display: flex; align-items: center; justify-content: center; gap: 0; }
+.dash-ps {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 10px 24px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: 4px; min-width: 130px; transition: all 0.2s;
+}
+.dash-ps.done { border-color: var(--green); background: var(--green-dim); }
+.dash-ps.active { border-color: var(--cyan); background: var(--cyan-dim); }
+.dash-ps-num {
+  width: 26px; height: 26px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 700; font-family: var(--mono);
+  border: 2px solid var(--border); color: var(--text3); background: var(--surface2); transition: all 0.2s;
+}
+.dash-ps.done .dash-ps-num { border-color: var(--green); background: var(--green); color: #000; }
+.dash-ps.active .dash-ps-num { border-color: var(--cyan); color: var(--cyan); box-shadow: 0 0 8px var(--cyan-glow); }
+.dash-ps-label { font-size: 10px; font-weight: 500; color: var(--text2); }
+.dash-ps.done .dash-ps-label { color: var(--green); }
+.dash-ps.active .dash-ps-label { color: var(--cyan); }
+.dash-ps-status {
+  font-size: 8px; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.3px;
+  padding: 1px 6px; border-radius: 2px;
+}
+.dash-ps-status.done { background: var(--green-dim); color: var(--green); }
+.dash-ps-status.active { background: var(--cyan-dim); color: var(--cyan); }
+.dash-ps-status.pending { color: var(--text3); }
+.dash-ps-arrow { font-size: 16px; color: var(--border); margin: 0 8px; }
+.dash-ps.done + .dash-ps-arrow { color: var(--green); }
+
+/* Bottom row */
+.dash-bottom { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex: 1; min-height: 0; }
+
+/* Step done badge */
+.step-done-badge {
+  display: inline-block; padding: 2px 8px; background: var(--green-dim); color: var(--green);
+  border: 1px solid var(--green); font-size: 9px; font-weight: 600; font-family: var(--mono); border-radius: 1px;
+}
+
+/* Live detection toolbar */
+.wc-toolbar { position: absolute; top: 8px; left: 10px; z-index: 10; display: flex; gap: 5px; align-items: center; }
+.wc-src-tabs { display: flex; gap: 1px; }
+.wc-src-tab {
+  padding: 4px 10px; font-size: 10px; cursor: pointer; background: rgba(0,0,0,0.7);
+  border: 1px solid var(--border); color: var(--text2); font-family: var(--font); transition: all 0.18s ease;
+}
+.wc-src-tab.active { border-color: var(--cyan); color: var(--cyan); background: var(--cyan-dim); }
+.wc-src-tab:hover { color: var(--text); border-color: var(--border2); }
+.wc-cam-select {
+  padding: 4px 6px; font-size: 10px; background: rgba(0,0,0,0.7); border: 1px solid var(--border);
+  color: var(--text); font-family: var(--font); outline: none; cursor: pointer; max-width: 150px; transition: border-color 0.15s;
+}
+.wc-cam-select:focus { border-color: var(--cyan); }
+.wc-video-drop {
+  position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+  border: 1px dashed var(--border2); padding: 24px 36px; text-align: center; cursor: pointer;
+  transition: all 0.2s ease; z-index: 5; border-radius: 2px;
+}
+.wc-video-drop:hover { border-color: var(--cyan); background: var(--cyan-dim); }
+.wc-video-drop-text { font-size: 11px; color: var(--text2); }
+.wc-video-drop-hint { font-size: 9px; color: var(--text3); margin-top: 4px; }
+
+/* Responsive */
+@media (max-width: 900px) {
+  .sidebar { width: 150px; }
+  .page-2col { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
+  .wf-content { flex-direction: column; }
+  .wf-left { width: 100%; }
+  .dash-cards { grid-template-columns: 1fr; }
+  .dash-bottom { grid-template-columns: 1fr; }
+  .dash-pipeline-steps { flex-direction: column; gap: 6px; }
+  .dash-ps-arrow { transform: rotate(90deg); margin: 0; }
 }
 </style>
 </head>
 <body>
 
-<header>
-  <div>
-    <h1><span>SubspaceAD</span> 异常检测</h1>
-    <div class="sub">DINOv2 + PCA 子空间建模 &nbsp;&middot;&nbsp; 少样本工业质检</div>
-  </div>
-  <button class="theme-toggle" id="themeToggle" title="切换主题">🌙</button>
-</header>
+<!-- ========================= TOP BAR ========================= -->
+<div class="topbar">
+  <div class="brand">深瞳</div>
+  <div class="sep"></div>
+  <div class="metric"><span class="dot on" id="topDot"></span> <span id="topStatus">初始化</span></div>
+  <div class="sep"></div>
+  <div class="metric">模型 <b id="topModel">--</b></div>
+  <div class="sep"></div>
+  <div class="metric">设备 <b id="topDevice">--</b></div>
+  <div class="sep"></div>
+  <div class="metric">记忆库 <b id="topMem">--</b></div>
+  <div class="push"></div>
+  <div class="metric" id="topClock">--</div>
+</div>
 
-<main>
+<!-- ========================= APP SHELL ========================= -->
+<div class="app-shell">
 
-  <!-- Status Bar -->
-  <div id="statusBar" class="status-bar untrained">
-    <span class="dot"></span>
-    <span id="statusText">未训练 — 请先上传正常图像训练模型</span>
-    <span style="margin-left:auto;font-size:12px;opacity:0.7;" id="deviceInfo"></span>
-  </div>
-
-  <!-- Step 1: Training -->
-  <div class="card">
-    <h2>1. 训练 PCA 模型</h2>
-    <div class="form-group">
-      <label>正常图像（无缺陷的模板图）</label>
-      <input type="file" id="trainFiles" multiple accept="image/png,image/jpeg,image/jpg,image/bmp,image/tiff">
-      <div class="file-list" id="trainFileList"></div>
+  <!-- ===== SIDEBAR ===== -->
+  <div class="sidebar" id="sidebar">
+    <div class="nav-group">
+      <div class="nav-label">主菜单</div>
+      <a class="nav-item active" data-page="workflow" href="#workflow"><span class="nav-icon">◈</span> 总览</a>
+      <a class="nav-item" data-page="guide" href="#guide"><span class="nav-icon">◎</span> 分步检测</a>
+      <a class="nav-item" data-page="inspect" href="#inspect"><span class="nav-icon">◉</span> 单图检测</a>
+      <a class="nav-item" data-page="batch" href="#batch"><span class="nav-icon">▣</span> 批量处理</a>
+      <a class="nav-item" data-page="live" href="#live"><span class="nav-icon">▶</span> 实时检测</a>
+      <a class="nav-item" data-page="analytics" href="#analytics"><span class="nav-icon">▤</span> 统计分析</a>
     </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>分辨率</label>
-        <select id="imageRes">
-          <option value="256">256</option>
-          <option value="384">384</option>
-          <option value="512" selected>512</option>
-          <option value="768">768</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>PCA 方差比</label>
-        <select id="pcaEv">
-          <option value="0.95">0.95</option>
-          <option value="0.97">0.97</option>
-          <option value="0.99" selected>0.99</option>
-          <option value="0.995">0.995</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>评分方法</label>
-        <select id="scoreMethod">
-          <option value="reconstruction" selected>重建误差</option>
-          <option value="mahalanobis">马氏距离</option>
-          <option value="euclidean">欧氏距离</option>
-          <option value="cosine">余弦距离</option>
-        </select>
-      </div>
-    </div>
-    <div class="btn-group">
-      <button class="btn btn-primary" id="trainBtn" style="flex:1;">训练模型</button>
-      <button class="btn btn-danger" id="resetBtn" style="flex:0 0 100px;">重置</button>
-    </div>
-    <div id="trainError" class="error-msg"></div>
-    <div id="trainResult" style="margin-top:12px;font-size:12px;color:var(--text-tertiary);display:none;"></div>
-  </div>
-
-  <!-- Step 2: Detection -->
-  <div class="card">
-    <h2>2. 异常检测</h2>
-    <div class="form-group">
-      <label>待检测图像</label>
-      <input type="file" id="detectFile" accept="image/png,image/jpeg,image/jpg,image/bmp,image/tiff">
-    </div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>可视化模式</label>
-        <select id="vizMode">
-          <option value="overlay" selected>热力图叠加</option>
-          <option value="side_by_side">左右对比</option>
-          <option value="bbox">缺陷框标注</option>
-        </select>
-      </div>
-      <div class="form-group" id="bboxThresholdGroup">
-        <label>缺陷阈值</label>
-        <input type="number" id="bboxThreshold" value="0.5" min="0" max="1" step="0.05">
-      </div>
-    </div>
-    <button class="btn btn-primary" id="detectBtn" disabled>检测</button>
-    <div id="detectError" class="error-msg"></div>
-  </div>
-
-  <!-- Results -->
-  <div id="results" style="display:none;">
-    <div class="score-display">
-      <div class="score-value" id="scoreValue">0.0000</div>
-      <div class="score-label">异常分数</div>
-      <span class="score-status" id="scoreStatus">Normal</span>
-      <div style="margin-top:12px;font-size:12px;color:var(--text-secondary);">
-        阈值: <span id="thresholdLabel">0.30</span> &nbsp;|&nbsp; 推理时间: <span id="timeLabel">0</span>ms
-      </div>
-    </div>
-    <div class="result-grid">
-      <div class="result-card">
-        <div class="card-label">热力图</div>
-        <img id="heatmapImg" src="" alt="热力图">
-      </div>
-      <div class="result-card">
-        <div class="card-label">可视化结果</div>
-        <img id="vizImg" src="" alt="可视化结果">
-      </div>
+    <div class="nav-spacer"></div>
+    <div class="sys-block">
+      <div class="kv"><span>引擎</span><span>深瞳</span></div>
+      <div class="kv"><span>模型</span><span id="sysModel">--</span></div>
+      <div class="kv"><span>设备</span><span id="sysDevice">--</span></div>
     </div>
   </div>
 
-</main>
+  <!-- ===== MAIN CONTENT ===== -->
+  <div class="main-area" id="mainArea">
 
-<div class="toast" id="toast"></div>
+    <!-- ===== PAGE: GUIDE (分步检测) ===== -->
+    <div class="page" id="page-guide">
+      <div class="wf-layout">
+        <!-- Stepper -->
+        <div class="wf-stepper" id="wfStepper">
+          <div class="wf-step current" data-step="1">
+            <span class="wf-step-num">1</span><span class="wf-step-label">构建记忆库</span>
+          </div>
+          <div class="wf-step-line"></div>
+          <div class="wf-step" data-step="2">
+            <span class="wf-step-num">2</span><span class="wf-step-label">阈值标定</span>
+          </div>
+          <div class="wf-step-line"></div>
+          <div class="wf-step" data-step="3">
+            <span class="wf-step-num">3</span><span class="wf-step-label">执行检测</span>
+          </div>
+        </div>
 
+        <!-- Content -->
+        <div class="wf-content">
+          <div class="wf-left panel" id="wfLeftPanel">
+            <div class="panel-hdr"><span class="indicator cyan"></span> <span id="wfStepTitle">步骤一：构建记忆库</span></div>
+            <div class="panel-body" id="wfStepBody"></div>
+          </div>
+          <div class="wf-right" id="wfPreview">
+            <div class="empty"><div class="icon">◈</div><div style="font-size:10px;color:var(--text3);margin-top:6px;">预览区域</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== PAGE: WORKFLOW (dashboard) ===== -->
+    <div class="page active" id="page-workflow">
+      <div class="wf-dash">
+        <!-- Status cards row -->
+        <div class="dash-cards" id="dashCards">
+          <div class="dash-card" id="dashCardMemory">
+            <div class="dash-card-icon">🧠</div>
+            <div class="dash-card-body">
+              <div class="dash-card-title">记忆库</div>
+              <div class="dash-card-status off" id="dashMemoryStatus">未构建</div>
+              <div class="dash-card-detail" id="dashMemoryDetail">--</div>
+            </div>
+          </div>
+          <div class="dash-card" id="dashCardThreshold">
+            <div class="dash-card-icon">🎯</div>
+            <div class="dash-card-body">
+              <div class="dash-card-title">判定阈值</div>
+              <div class="dash-card-status off" id="dashThresholdStatus">未标定</div>
+              <div class="dash-card-detail" id="dashThresholdDetail">--</div>
+            </div>
+          </div>
+          <div class="dash-card" id="dashCardReady">
+            <div class="dash-card-icon">✅</div>
+            <div class="dash-card-body">
+              <div class="dash-card-title">检测能力</div>
+              <div class="dash-card-status off" id="dashReadyStatus">未就绪</div>
+              <div class="dash-card-detail" id="dashReadyDetail">需要构建记忆库</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Pipeline progress -->
+        <div class="dash-pipeline">
+          <div class="dash-pipeline-title">检测流水线</div>
+          <div class="dash-pipeline-steps">
+            <div class="dash-ps" id="dashPs1">
+              <div class="dash-ps-num">1</div>
+              <div class="dash-ps-label">构建记忆库</div>
+              <div class="dash-ps-status pending">等待中</div>
+            </div>
+            <div class="dash-ps-arrow">→</div>
+            <div class="dash-ps" id="dashPs2">
+              <div class="dash-ps-num">2</div>
+              <div class="dash-ps-label">阈值标定</div>
+              <div class="dash-ps-status pending">等待中</div>
+            </div>
+            <div class="dash-ps-arrow">→</div>
+            <div class="dash-ps" id="dashPs3">
+              <div class="dash-ps-num">3</div>
+              <div class="dash-ps-label">执行检测</div>
+              <div class="dash-ps-status pending">等待中</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Bottom row: system info + recent -->
+        <div class="dash-bottom">
+          <div class="panel" style="flex:1;">
+            <div class="panel-hdr"><span class="indicator cyan"></span> 系统信息</div>
+            <div class="panel-body">
+              <div class="kv-row"><span class="kv">引擎</span><span class="vv">深瞳</span></div>
+              <div class="kv-row"><span class="kv">模型</span><span class="vv" id="dashModel">--</span></div>
+              <div class="kv-row"><span class="kv">设备</span><span class="vv" id="dashDevice">--</span></div>
+              <div class="kv-row"><span class="kv">分辨率</span><span class="vv" id="dashRes">--</span></div>
+              <div class="kv-row"><span class="kv">融合策略</span><span class="vv" id="dashFusion">--</span></div>
+              <div class="kv-row"><span class="kv">特征层</span><span class="vv" id="dashLayers">--</span></div>
+            </div>
+          </div>
+          <div class="panel" style="flex:1;">
+            <div class="panel-hdr"><span class="indicator green"></span> 操作</div>
+            <div class="panel-body" style="display:flex;flex-direction:column;gap:5px;">
+              <button class="btn btn-p" id="dashGoGuide" style="width:100%;">进入分步检测 →</button>
+              <button class="btn btn-g" id="dashGoInspect" style="width:100%;">单图检测</button>
+              <button class="btn btn-g" id="dashGoBatch" style="width:100%;">批量处理</button>
+              <button class="btn btn-g" id="dashGoLive" style="width:100%;">实时检测</button>
+              <button class="btn btn-danger" id="dashReset" style="width:100%;margin-top:auto;">重置检测器</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== PAGE: INSPECT ===== -->
+    <div class="page-2col" id="page-inspect">
+      <div class="panel">
+        <div class="panel-hdr"><span class="indicator cyan"></span> 检测参数</div>
+        <div class="panel-body">
+          <div class="data-block">
+            <div class="title">测试图像</div>
+            <div class="drop-z" id="detectDropZone"><div class="drop-z-text">拖放测试图像</div><input type="file" id="detectFile" accept="image/png,image/jpeg,image/jpg,image/bmp,image/tiff"></div>
+          </div>
+          <div class="data-block">
+            <div class="title">参数设置</div>
+            <div class="fg-r">
+              <div class="fg"><label>视图</label><select id="vizMode"><option value="overlay" selected>叠加</option><option value="side_by_side">对比</option><option value="bbox">边界框</option></select></div>
+              <div class="fg"><label>阈值</label><input type="number" id="bboxThreshold" value="0.5" min="0" max="1" step="0.05"></div>
+            </div>
+            <div class="toggle-r"><label class="toggle-s"><input type="checkbox" id="enableLocalization" checked><span class="slider"></span></label><label>目标定位 + ROI裁切</label></div>
+            <button class="btn btn-p" id="detectBtn" disabled style="width:100%;">执行检测</button>
+            <div id="detectError" class="err-msg"></div>
+          </div>
+          <div class="data-block" id="resultBlock" style="display:none;">
+            <div class="title">检测结果</div>
+            <div style="display:flex;align-items:baseline;gap:6px;margin-bottom:2px;">
+              <div class="big-value ok" id="resultScore">--</div><div class="tag ok" id="resultTag">--</div>
+            </div>
+            <div class="big-label" id="resultLabel">异常分数</div>
+            <div class="kv-row"><span class="kv">阈值</span><span class="vv" id="resultThr">--</span></div>
+            <div class="kv-row"><span class="kv">耗时</span><span class="vv" id="resultTime">--</span></div>
+            <div class="kv-row"><span class="kv">定位</span><span class="vv" id="resultLoc">--</span></div>
+            <!-- Double-check pipeline -->
+            <div id="dcPipeline" style="display:none;margin-top:8px;padding:8px;background:var(--surface);border:1px solid var(--border);border-radius:2px;">
+              <div style="font-size:8px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;color:var(--text3);margin-bottom:6px;">复核流水线</div>
+              <div style="display:flex;align-items:center;gap:4px;font-size:8px;">
+                <span style="padding:2px 5px;background:var(--cyan-dim);color:var(--cyan);border-radius:2px;">像素检测</span>
+                <span style="color:var(--text3);">→</span>
+                <span id="dcStep2" style="padding:2px 5px;background:var(--surface2);color:var(--text2);border-radius:2px;">图结构复核</span>
+                <span style="color:var(--text3);">→</span>
+                <span style="padding:2px 5px;background:var(--surface2);color:var(--text2);border-radius:2px;font-weight:600;" id="dcFinal">最终判定</span>
+              </div>
+              <div class="kv-row" style="margin-top:6px;"><span class="kv">复核分数</span><span class="vv" id="dcScore">--</span></div>
+              <div class="kv-row"><span class="kv">融合方式</span><span class="vv" id="dcMethod">--</span></div>
+              <div class="kv-row"><span class="kv">提取节点</span><span class="vv" id="dcNodes">--</span></div>
+            </div>
+            <button class="btn btn-g" id="exportBtn" style="width:100%;margin-top:5px;display:none;">导出报告</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hdr">
+          <span class="indicator orange"></span> 检测画面
+          <span style="margin-left:auto;" class="view-modes">
+            <button class="view-mode active" data-view="visualization">结果</button>
+            <button class="view-mode" data-view="original">原图</button>
+            <button class="view-mode" data-view="heatmap">热力图</button>
+          </span>
+        </div>
+        <div class="cam-view" id="camView">
+          <div class="empty-state" id="camEmpty"><div class="icon">◈</div><div class="msg">上传图像开始检测</div></div>
+          <img id="camImage" src="" alt="" style="display:none;">
+          <div class="cam-hud" id="camHud"></div>
+          <div class="cam-status" id="camStatus"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== PAGE: BATCH ===== -->
+    <div class="page-2col" id="page-batch">
+      <div class="panel">
+        <div class="panel-hdr"><span class="indicator cyan"></span> 批量处理</div>
+        <div class="panel-body">
+          <div class="tip">上传多张图像进行批量异常检测。需要先构建记忆库。</div>
+          <div class="drop-z" id="batchDropZone"><div class="drop-z-text">拖放多张图像</div><div class="drop-z-hint">PNG / JPG / BMP</div><input type="file" id="batchFiles" multiple accept="image/png,image/jpeg,image/jpg,image/bmp,image/tiff"></div>
+          <div id="batchError" class="err-msg"></div>
+          <div style="margin-top:8px;">
+            <div class="prog-bar" style="display:none;" id="batchProgBar"><div class="fill" id="batchFill"></div></div>
+            <div style="font-family:var(--mono);font-size:10px;margin-top:4px;color:var(--cyan);display:none;" id="batchProgText"></div>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hdr"><span class="indicator green"></span> 检测结果 <span id="batchSummary" style="margin-left:8px;font-size:9px;color:var(--text2);"></span></div>
+        <div class="panel-body" id="batchResultBody">
+          <table class="mini-tbl" id="batchResultTbl"><thead><tr><th>#</th><th>文件名</th><th>分数</th><th>状态</th><th>耗时</th></tr></thead><tbody><tr><td colspan="5" style="color:var(--text3);text-align:center;">等待上传</td></tr></tbody></table>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== PAGE: LIVE ===== -->
+    <div class="page-2col" id="page-live">
+      <div class="panel">
+        <div class="panel-hdr"><span class="indicator green"></span> 实时检测</div>
+        <div class="panel-body">
+          <div class="tip">摄像头实时检测或上传视频文件进行逐帧分析。需要先构建记忆库。</div>
+          <div class="data-block">
+            <div class="title">来源</div>
+            <div class="wc-src-tabs" id="liveSrcTabs" style="margin-bottom:6px;">
+              <button class="wc-src-tab active" data-src="camera">📷 摄像头</button>
+              <button class="wc-src-tab" data-src="video">🎬 视频文件</button>
+            </div>
+            <select class="wc-cam-select" id="liveCamSelect" style="width:100%;margin-bottom:6px;"></select>
+            <div class="drop-z" id="liveVideoDrop" style="display:none;padding:10px;">
+              <div class="drop-z-text">拖放视频文件</div>
+              <div class="drop-z-hint">MP4 / AVI / MOV · 最大 200MB</div>
+              <input type="file" id="liveVideoFile" accept="video/mp4,video/avi,video/quicktime,video/x-msvideo">
+            </div>
+            <div style="font-family:var(--mono);font-size:9px;color:var(--text2);margin-top:4px;" id="liveStatusText">选择来源开始</div>
+          </div>
+        </div>
+      </div>
+      <div class="panel" id="liveViewPanel">
+        <div class="panel-hdr"><span class="indicator green"></span> 实时画面 <span id="liveViewStatus" style="margin-left:8px;font-size:9px;color:var(--text2);"></span></div>
+        <div class="cam-view" id="liveView">
+          <video id="liveVideo" autoplay playsinline muted style="width:100%;height:100%;object-fit:contain;background:#000;display:none;"></video>
+          <canvas id="liveOverlay" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;"></canvas>
+          <div class="empty-state" id="liveEmpty"><div class="icon">▶</div><div class="msg">就绪</div></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== PAGE: ANALYTICS ===== -->
+    <div class="page-2col" id="page-analytics">
+      <div class="panel">
+        <div class="panel-hdr"><span class="indicator cyan"></span> 统计数据</div>
+        <div class="panel-body" id="analyticsStats">
+          <div class="data-block"><div class="title">概览</div>
+            <div class="kv-row"><span class="kv">检测总数</span><span class="vv" id="aTotal">--</span></div>
+            <div class="kv-row"><span class="kv">通过率</span><span class="vv ok" id="aPassRate">--</span></div>
+            <div class="kv-row"><span class="kv">缺陷率</span><span class="vv err" id="aFailRate">--</span></div>
+            <div class="kv-row"><span class="kv">平均分数</span><span class="vv" id="aMean">--</span></div>
+            <div class="kv-row"><span class="kv">平均耗时</span><span class="vv" id="aTime">--</span></div>
+          </div>
+          <div class="data-block"><div class="title">近期记录</div>
+            <table class="mini-tbl" id="recentTbl"><thead><tr><th>#</th><th>分数</th><th>状态</th><th>耗时</th></tr></thead><tbody id="recentBody"><tr><td colspan="4" style="color:var(--text3);text-align:center;">暂无数据</td></tr></tbody></table>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-hdr"><span class="indicator orange"></span> 趋势图</div>
+        <div class="panel-body" id="trendChart"></div>
+      </div>
+    </div>
+
+  </div><!-- /main-area -->
+</div><!-- /app-shell -->
+
+<!-- Toast -->
+<div class="toast-wrap" id="toastContainer"></div>
+
+<!-- ========================= SCRIPTS ========================= -->
 <script>
-// ===== Theme Toggle =====
-(function initTheme() {
-  var saved = localStorage.getItem('mesquare-theme');
-  if (saved) document.documentElement.setAttribute('data-theme', saved);
-  updateToggleIcon();
-})();
-
-function updateToggleIcon() {
-  var isDark = document.documentElement.getAttribute('data-theme') !== 'light';
-  document.getElementById('themeToggle').textContent = isDark ? '☀️' : '🌙';
-}
-
-document.getElementById('themeToggle').addEventListener('click', function() {
-  var isDark = document.documentElement.getAttribute('data-theme') !== 'light';
-  var next = isDark ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('mesquare-theme', next);
-  updateToggleIcon();
-});
-
+// ── Globals ──
 var BASE = window.location.origin;
+var D = { history: JSON.parse(localStorage.getItem('subspacead-hist') || '[]'), currentData: null, currentPage: 'workflow' };
+var _live = { stream: null, timer: null, detecting: false, source: 'camera', deviceId: null, cameras: [] };
+var _wf = { step: 1, stepDone: {}, trainResult: null, calThreshold: null };
 
-// ===== File list display =====
-document.getElementById('trainFiles').addEventListener('change', function() {
-  document.getElementById('trainFileList').textContent = this.files.length + ' 个文件已选择';
-});
+// ── Clock ──
+function tick() { document.getElementById('topClock').textContent = new Date().toLocaleTimeString('zh-CN', { hour12: false }); }
+setInterval(tick, 1000); tick();
 
-// ===== Viz mode toggle =====
-document.getElementById('vizMode').addEventListener('change', function() {
-  document.getElementById('bboxThresholdGroup').style.display =
-    this.value === 'bbox' ? 'block' : 'none';
-});
-document.getElementById('vizMode').dispatchEvent(new Event('change'));
-
-// ===== Toast =====
-function showToast(msg) {
-  var toast = document.getElementById('toast');
-  toast.textContent = msg;
-  toast.classList.add('show');
-  setTimeout(function() { toast.classList.remove('show'); }, 2500);
+// ── Toast ──
+function toast(msg, t) { t = t || '';
+  var c = document.getElementById('toastContainer'), el = document.createElement('div');
+  el.className = 'toast ' + (t === 'ok' ? 'ok' : t === 'err' ? 'err' : 'warn'); el.textContent = msg; c.appendChild(el);
+  requestAnimationFrame(function () { el.classList.add('show'); });
+  setTimeout(function () { el.classList.remove('show'); setTimeout(function () { el.remove(); }, 200); }, 2500);
 }
 
-// ===== Error helpers =====
-function showError(id, msg) {
-  var el = document.getElementById(id);
-  el.textContent = msg;
-  el.classList.add('show');
-}
-function hideError(id) {
-  document.getElementById(id).classList.remove('show');
-}
+// ── Helpers ──
+function showE(id, msg) { var e = document.getElementById(id); e.textContent = msg; e.classList.add('show'); }
+function hideE(id) { document.getElementById(id).classList.remove('show'); }
+function $id(id) { return document.getElementById(id); }
 
-// ===== Status =====
-function updateStatusBar(data) {
-  var bar = document.getElementById('statusBar');
-  var text = document.getElementById('statusText');
-  var deviceEl = document.getElementById('deviceInfo');
-  var detectBtn = document.getElementById('detectBtn');
-
-  if (data && data.is_trained) {
-    bar.className = 'status-bar trained';
-    var info = data.train_info || {};
-    text.textContent = '已训练 — PCA: ' + (info.pca_components || '?') + ' 维' +
-      ' | 特征: ' + (info.feature_dim || '?') +
-      ' | 分辨率: ' + (info.image_res || data.image_res || '?');
-    deviceEl.textContent = '设备: ' + (data.device || '?');
-    detectBtn.disabled = false;
-  } else {
-    bar.className = 'status-bar untrained';
-    text.textContent = '未训练 — 请先上传正常图像训练模型';
-    deviceEl.textContent = data ? '设备: ' + (data.device || '?') : '';
-    detectBtn.disabled = true;
-  }
-}
-
+// ── Status ──
 async function checkStatus() {
-  try {
-    var resp = await fetch(BASE + '/api/status');
-    var data = await resp.json();
-    updateStatusBar(data);
-    return data;
-  } catch(e) {
-    console.warn('Status check failed:', e);
-    return null;
+  try { var r = await fetch(BASE + '/api/status'); var d = await r.json();
+    var t = d.is_trained;
+    $id('topDot').className = 'dot ' + (t ? 'on' : 'off');
+    $id('topStatus').textContent = t ? '就绪' : '未构建';
+    $id('topMem').textContent = t ? (d.train_info && d.train_info.num_patches || '--') : '--';
+    $id('sysModel').textContent = $id('topModel').textContent = (d.model_path || '').split('/').pop();
+    $id('sysDevice').textContent = $id('topDevice').textContent = (d.device || '').toUpperCase();
+    $id('topRes').textContent = d.image_res || '--';
+    // Update detect button if on inspect page
+    var db = $id('detectBtn'); if (db) db.disabled = !(t && ($id('detectFile') && $id('detectFile').files.length > 0));
+    return d;
+  } catch (e) { return null; }
+}
+async function checkSilent() { try { var r = await fetch(BASE + '/api/status'); return await r.json(); } catch (e) { return null; } }
+
+// ── Drag & Drop ──
+function dd(zoneId, inputId, onChg) {
+  var z = $id(zoneId), inp = $id(inputId);
+  ['dragenter', 'dragover'].forEach(function (e) { z.addEventListener(e, function (ev) { ev.preventDefault(); }); });
+  ['dragleave', 'drop'].forEach(function (e) { z.addEventListener(e, function (ev) { ev.preventDefault(); }); });
+  z.addEventListener('drop', function (e) { inp.files = e.dataTransfer.files; if (onChg) onChg(); });
+  inp.addEventListener('change', function () { if (onChg) onChg(); });
+}
+
+// ── History ──
+function addToHistory(d) {
+  D.history.unshift({ ts: Date.now(), score: d.anomaly_score, is_anomaly: d.is_anomaly, threshold: d.threshold, time_ms: d.inference_time_ms });
+  if (D.history.length > 50) D.history = D.history.slice(0, 50);
+  localStorage.setItem('subspacead-hist', JSON.stringify(D.history));
+  refreshRecentTable();
+}
+function refreshRecentTable() {
+  var t = $id('recentBody'); if (!t) return;
+  if (!D.history.length) { t.innerHTML = '<tr><td colspan="4" style="color:var(--text3);text-align:center;">暂无数据</td></tr>'; return; }
+  t.innerHTML = D.history.slice(0, 10).map(function (h, i) {
+    return '<tr><td>' + (i + 1) + '</td><td style="color:' + (h.is_anomaly ? 'var(--red)' : 'var(--green)') + ';">' + h.score.toFixed(4) + '</td>' +
+      '<td><span class="tag ' + (h.is_anomaly ? 'err' : 'ok') + '">' + (h.is_anomaly ? '异常' : '正常') + '</span></td><td>' + h.time_ms + 'ms</td></tr>';
+  }).join('');
+}
+
+// ============================================================
+// ROUTING
+// ============================================================
+function navigate(page) {
+  D.currentPage = page;
+  // Update sidebar
+  document.querySelectorAll('.sidebar .nav-item').forEach(function (n) { n.classList.remove('active'); });
+  var navItem = document.querySelector('.sidebar .nav-item[data-page="' + page + '"]');
+  if (navItem) navItem.classList.add('active');
+  // Hide all pages
+  document.querySelectorAll('.page, .page-2col').forEach(function (p) { p.classList.remove('active'); });
+  // Show target
+  var target = document.getElementById('page-' + page);
+  if (target) { target.classList.add('active'); }
+  // Page init
+  if (page === 'workflow') renderDashboard();
+  else if (page === 'guide') renderWorkflow();
+  else if (page === 'analytics') refreshAnalytics();
+  else if (page === 'live') initLive();
+  else if (page === 'batch') initBatch();
+  // Cleanup live if leaving
+  if (page !== 'live') cleanupLive();
+  window.location.hash = page;
+}
+
+// Sidebar clicks
+document.querySelectorAll('.sidebar .nav-item').forEach(function (n) {
+  n.addEventListener('click', function (e) { e.preventDefault(); navigate(this.dataset.page); });
+});
+
+// Hash-based init
+function hashToPage() { var h = window.location.hash.replace('#', ''); if (h && document.getElementById('page-' + h)) navigate(h); else navigate('workflow'); }
+window.addEventListener('hashchange', hashToPage);
+
+// ============================================================
+// WORKFLOW DASHBOARD
+// ============================================================
+function renderDashboard() {
+  checkStatus().then(function (st) {
+    if (!st) return;
+    var trained = st.is_trained;
+    var calDone = _wf.stepDone[2];
+    var threshold = _wf.calThreshold || 0.3;
+
+    // ── Memory card ──
+    var memStatus = $id('dashMemoryStatus'), memDetail = $id('dashMemoryDetail');
+    if (trained) {
+      memStatus.textContent = '已构建'; memStatus.className = 'dash-card-status on';
+      var ti = st.train_info || {};
+      memDetail.innerHTML = '特征: ' + (ti.num_patches || '--') + ' 个<br>模板: ' + (ti.num_templates || '--') + ' 张<br>分辨率: ' + (ti.image_res || st.image_res || '--');
+    } else {
+      memStatus.textContent = '未构建'; memStatus.className = 'dash-card-status off';
+      memDetail.textContent = '尚未构建记忆库';
+    }
+
+    // ── Threshold card ──
+    var thrStatus = $id('dashThresholdStatus'), thrDetail = $id('dashThresholdDetail');
+    if (calDone) {
+      thrStatus.textContent = '已标定'; thrStatus.className = 'dash-card-status on';
+      thrDetail.innerHTML = '当前阈值: <b style="color:var(--cyan);">' + threshold.toFixed(4) + '</b>';
+    } else {
+      thrStatus.textContent = '未标定'; thrStatus.className = 'dash-card-status off';
+      thrDetail.textContent = '默认阈值: 0.3000';
+    }
+
+    // ── Ready card ──
+    var rdyStatus = $id('dashReadyStatus'), rdyDetail = $id('dashReadyDetail');
+    if (trained && calDone) {
+      rdyStatus.textContent = '就绪'; rdyStatus.className = 'dash-card-status on';
+      rdyDetail.textContent = '可以开始检测';
+    } else if (trained) {
+      rdyStatus.textContent = '可检测'; rdyStatus.className = 'dash-card-status on';
+      rdyDetail.textContent = '记忆库已构建（使用默认阈值）';
+    } else {
+      rdyStatus.textContent = '未就绪'; rdyStatus.className = 'dash-card-status off';
+      rdyDetail.textContent = '需要先构建记忆库';
+    }
+
+    // ── Pipeline steps ──
+    function setPs(el, state) {
+      el.classList.remove('done', 'active'); el.classList.add(state);
+      var stEl = el.querySelector('.dash-ps-status');
+      stEl.classList.remove('done', 'active', 'pending');
+      if (state === 'done') { stEl.classList.add('done'); stEl.textContent = '已完成'; }
+      else if (state === 'active') { stEl.classList.add('active'); stEl.textContent = '进行中'; }
+      else { stEl.classList.add('pending'); stEl.textContent = '等待中'; }
+    }
+    setPs($id('dashPs1'), trained ? 'done' : 'active');
+    setPs($id('dashPs2'), calDone ? 'done' : (trained ? 'active' : 'pending'));
+    setPs($id('dashPs3'), (trained && calDone) ? 'active' : 'pending');
+
+    // ── System info ──
+    $id('dashModel').textContent = (st.model_path || '').split('/').pop();
+    $id('dashDevice').textContent = (st.device || '').toUpperCase();
+    $id('dashRes').textContent = st.image_res || '--';
+    $id('dashFusion').textContent = st.layer_fusion || '--';
+    $id('dashLayers').textContent = (st.layers || []).join(',');
+  });
+
+  // ── Action buttons ──
+  $id('dashGoGuide').onclick = function () { navigate('guide'); };
+  $id('dashGoInspect').onclick = function () { navigate('inspect'); };
+  $id('dashGoBatch').onclick = function () { navigate('batch'); };
+  $id('dashGoLive').onclick = function () { navigate('live'); };
+  $id('dashReset').onclick = async function () {
+    if (!confirm('确认重置检测器？所有记忆库和标定数据将丢失。')) return;
+    try { await fetch(BASE + '/api/reset', { method: 'POST' }); _wf.stepDone = {}; _wf.trainResult = null; _wf.calThreshold = null; await checkStatus(); renderDashboard(); toast('已重置', 'ok'); }
+    catch (e) { toast('重置失败', 'err'); }
+  };
+}
+
+// ============================================================
+// WORKFLOW PAGE (分步检测)
+// ============================================================
+function renderWorkflow() {
+  updateWorkflowStepper();
+  renderWorkflowStep();
+}
+
+function updateWorkflowStepper() {
+  var steps = document.querySelectorAll('#wfStepper .wf-step');
+  steps.forEach(function (s) {
+    var stepNum = parseInt(s.dataset.step);
+    s.classList.remove('current', 'done');
+    if (_wf.stepDone[stepNum]) s.classList.add('done');
+    if (stepNum === _wf.step) s.classList.add('current');
+  });
+}
+
+function renderWorkflowStep() {
+  var titles = ['步骤一：构建记忆库', '步骤二：阈值标定', '步骤三：执行检测'];
+  $id('wfStepTitle').textContent = titles[_wf.step - 1];
+  var body = $id('wfStepBody');
+
+  if (_wf.step === 1) {
+    body.innerHTML =
+      '<div class="tip">上传 <b>3-5 张正常产品图像</b>（多角度拍摄），系统将自动构建特征记忆库。</div>' +
+      '<div class="drop-z" id="wfTrainDrop"><div class="drop-z-text">拖放模板图像</div><div class="drop-z-hint">PNG / JPG / BMP · 最大 50MB</div><input type="file" id="wfTrainFiles" multiple accept="image/png,image/jpeg,image/jpg,image/bmp,image/tiff"></div>' +
+      '<div class="file-n" id="wfTrainCount"></div>' +
+      '<div class="fg-r"><div class="fg"><label>分辨率</label><select id="wfImageRes"><option value="256">256</option><option value="384">384</option><option value="448" selected>448</option><option value="512">512</option></select></div><div class="fg"><label>聚合</label><select id="wfSimAgg"><option value="max" selected>MAX</option><option value="top1_mean">TOP1%</option></select></div></div>' +
+      '<div class="fg-r"><div class="fg"><label>融合</label><select id="wfLayerFusion"><option value="score_avg" selected>分数平均</option><option value="score_max">分数最大</option><option value="feature_avg">特征平均</option><option value="feature_concat">特征拼接</option></select></div><div class="fg"><label>特征层</label><input type="text" id="wfLayers" value="8,10,12"></div></div>' +
+      '<button class="btn btn-p" id="wfTrainBtn" style="width:100%;">构建记忆库</button>' +
+      '<div id="wfTrainError" class="err-msg"></div>' +
+      (_wf.stepDone[1] ? '<div class="wf-summary"><div class="row"><span class="l">状态</span><span class="v" style="color:var(--green);">已完成 ✓</span></div><div class="row"><span class="l">特征数</span><span class="v">' + (_wf.trainResult ? _wf.trainResult.num_patches : '--') + '</span></div><div class="row"><span class="l">模板数</span><span class="v">' + (_wf.trainResult ? _wf.trainResult.num_templates : '--') + '</span></div><div class="row"><span class="l">构建耗时</span><span class="v">' + (_wf.trainResult ? _wf.trainResult.build_time_ms + 'ms' : '--') + '</span></div></div>' : '') +
+      '<div class="wf-actions">' + (_wf.stepDone[1] ? '<button class="btn btn-p" id="wfNextTo2">下一步：阈值标定 →</button>' : '') + '</div>';
+    // Bind
+    dd('wfTrainDrop', 'wfTrainFiles', function () {
+      var n = $id('wfTrainFiles').files.length;
+      if (n > 0) { $id('wfTrainDrop').classList.add('has'); $id('wfTrainCount').textContent = '已选择 ' + n + ' 张图像'; }
+      else { $id('wfTrainDrop').classList.remove('has'); $id('wfTrainCount').textContent = ''; }
+    });
+    $id('wfTrainBtn').addEventListener('click', wfDoTrain);
+    var n2 = $id('wfNextTo2'); if (n2) n2.addEventListener('click', function () { _wf.step = 2; renderWorkflow(); });
+  }
+  else if (_wf.step === 2) {
+    body.innerHTML =
+      '<div class="tip">上传 <b>5-20 张正常图像</b>进行阈值标定，系统将自动计算最优判定阈值。<br><span style="color:var(--text3);">提示：如果已有满意的阈值，可跳过此步骤直接进入检测。</span></div>' +
+      '<div class="drop-z" id="wfCalDrop"><div class="drop-z-text">拖放正常图像（用于标定）</div><div class="drop-z-hint">PNG / JPG / BMP · 5-20 张</div><input type="file" id="wfCalFiles" multiple accept="image/png,image/jpeg,image/jpg,image/bmp,image/tiff"></div>' +
+      '<button class="btn btn-p" id="wfCalBtn" style="width:100%;">开始标定</button>' +
+      '<div id="wfCalError" class="err-msg"></div>' +
+      '<div style="margin-top:8px;"><div class="bar-chart" id="wfCalChart" style="height:60px;"></div><div class="bar-labels" id="wfCalLabels"></div><div style="font-size:9px;color:var(--text2);margin-top:4px;font-family:var(--mono);text-align:center;" id="wfCalSummary"></div></div>' +
+      '<div class="wf-actions" style="gap:4px;">' +
+        '<button class="btn btn-g" id="wfBackTo1">← 上一步</button>' +
+        '<button class="btn btn-g" id="wfSkipCal">跳过标定</button>' +
+        (_wf.stepDone[2] ? '<button class="btn btn-p" id="wfNextTo3">下一步：执行检测 →</button>' : '') +
+      '</div>';
+    $id('wfBackTo1').addEventListener('click', function () { _wf.step = 1; renderWorkflow(); });
+    $id('wfSkipCal').addEventListener('click', function () { _wf.stepDone[2] = true; _wf.calThreshold = 0.3; _wf.step = 3; renderWorkflow(); });
+    $id('wfCalBtn').addEventListener('click', wfDoCalibrate);
+    var n3 = $id('wfNextTo3'); if (n3) n3.addEventListener('click', function () { _wf.step = 3; renderWorkflow(); });
+    // Restore chart if already done
+    if (_wf.stepDone[2] && _wf.calThreshold) {
+      $id('wfCalSummary').innerHTML = '阈值: <b style="color:var(--red);">' + _wf.calThreshold.toFixed(4) + '</b>';
+    }
+  }
+  else if (_wf.step === 3) {
+    body.innerHTML =
+      '<div class="tip">上传待检测图像，系统将使用已构建的记忆库和阈值进行异常判定。</div>' +
+      '<div class="drop-z" id="wfDetectDrop"><div class="drop-z-text">拖放测试图像</div><input type="file" id="wfDetectFile" accept="image/png,image/jpeg,image/jpg,image/bmp,image/tiff"></div>' +
+      '<div class="fg-r"><div class="fg"><label>视图</label><select id="wfVizMode"><option value="overlay" selected>叠加</option><option value="side_by_side">对比</option><option value="bbox">边界框</option></select></div><div class="fg"><label>阈值</label><input type="number" id="wfBboxThr" value="0.5" min="0" max="1" step="0.05"></div></div>' +
+      '<div class="toggle-r"><label class="toggle-s"><input type="checkbox" id="wfEnableLoc" checked><span class="slider"></span></label><label>目标定位 + ROI裁切</label></div>' +
+      '<button class="btn btn-p" id="wfDetectBtn" style="width:100%;">执行检测</button>' +
+      '<div id="wfDetectError" class="err-msg"></div>' +
+      '<div class="wf-actions"><button class="btn btn-g" id="wfBackTo2">← 上一步</button></div>';
+    $id('wfBackTo2').addEventListener('click', function () { _wf.step = 2; renderWorkflow(); });
+    // Preview uploaded image
+    dd('wfDetectDrop', 'wfDetectFile', function () {
+      var f = $id('wfDetectFile').files[0];
+      if (f) {
+        $id('wfDetectDrop').classList.add('has');
+        $id('wfDetectDrop').querySelector('.drop-z-text').textContent = f.name;
+        var reader = new FileReader();
+        reader.onload = function (e) {
+          var prev = $id('wfPreview');
+          prev.innerHTML = '<img src="' + e.target.result + '" id="wfPreviewImg" style="width:100%;height:100%;object-fit:contain;">';
+        }; reader.readAsDataURL(f);
+      }
+    });
+    $id('wfDetectBtn').addEventListener('click', wfDoDetect);
   }
 }
 
-// ===== Train =====
-document.getElementById('trainBtn').addEventListener('click', async function() {
-  var files = document.getElementById('trainFiles').files;
-  if (files.length === 0) {
-    showError('trainError', '请选择至少一张正常图像');
-    return;
-  }
+async function wfDoTrain() {
+  var files = $id('wfTrainFiles').files;
+  if (!files.length) { showE('wfTrainError', '请选择模板图像'); return; }
+  var fd = new FormData();
+  for (var i = 0; i < files.length; i++) fd.append('files', files[i]);
+  fd.append('image_res', parseInt($id('wfImageRes').value));
+  fd.append('similarity_aggregation', $id('wfSimAgg').value);
+  fd.append('layer_fusion', $id('wfLayerFusion').value);
+  fd.append('layers', $id('wfLayers').value);
+  var btn = $id('wfTrainBtn'); btn.disabled = true; btn.classList.add('btn-loading'); btn.textContent = '';
+  try {
+    var r = await fetch(BASE + '/api/train', { method: 'POST', body: fd }); var d = await r.json();
+    if (!r.ok) { showE('wfTrainError', d.detail || '构建失败'); toast('构建失败', 'err'); return; }
+    _wf.stepDone[1] = true; _wf.trainResult = d;
+    toast('记忆库就绪 [' + d.num_patches + ' 特征 | ' + d.build_time_ms + 'ms]', 'ok');
+    await checkStatus(); renderWorkflow();
+  } catch (e) { showE('wfTrainError', e.message); toast('构建失败', 'err'); }
+  finally { btn.disabled = false; btn.classList.remove('btn-loading'); btn.textContent = '构建记忆库'; }
+}
 
-  var formData = new FormData();
+async function wfDoCalibrate() {
+  var files = $id('wfCalFiles').files;
+  if (!files.length) { showE('wfCalError', '请选择正常图像'); return; }
+  var st = await checkSilent(); if (!st || !st.is_trained) { toast('请先构建记忆库', 'err'); return; }
+  var btn = $id('wfCalBtn'); btn.disabled = true; btn.classList.add('btn-loading'); btn.textContent = '';
+  var scores = [];
   for (var i = 0; i < files.length; i++) {
-    formData.append('files', files[i]);
+    var fd = new FormData(); fd.append('file', files[i]); fd.append('return_heatmap', 'false'); fd.append('enable_localization', 'false');
+    try { var r = await fetch(BASE + '/api/detect', { method: 'POST', body: fd }); scores.push((await r.json()).anomaly_score); } catch (e) { }
   }
-  formData.append('image_res', parseInt(document.getElementById('imageRes').value));
-  formData.append('pca_ev', parseFloat(document.getElementById('pcaEv').value));
-  formData.append('score_method', document.getElementById('scoreMethod').value);
+  btn.disabled = false; btn.classList.remove('btn-loading'); btn.textContent = '开始标定';
+  if (!scores.length) { showE('wfCalError', '标定失败，无法获取分数'); return; }
+  scores.sort(function (a, b) { return a - b; });
+  var mean = scores.reduce(function (a, b) { return a + b; }, 0) / scores.length;
+  var std = Math.sqrt(scores.reduce(function (s, v) { return s + (v - mean) * (v - mean); }, 0) / scores.length);
+  var p99 = scores[Math.floor(scores.length * 0.99)] || scores[scores.length - 1];
+  var thr = Math.min(mean + 3 * std, p99 * 1.2);
+  _wf.stepDone[2] = true; _wf.calThreshold = thr;
+  // Draw histogram
+  var bins = 16, lo = scores[0], hi = scores[scores.length - 1], rng = (hi - lo) || 0.01;
+  var bars = [], lbls = [];
+  for (var j = 0; j < bins; j++) { var bl = lo + rng * j / bins, bh = lo + rng * (j + 1) / bins; bars.push(scores.filter(function (s) { return s >= bl && s < bh; }).length); lbls.push(bl.toFixed(3)); }
+  var maxH = Math.max.apply(null, bars) || 1;
+  var thrBin = Math.min(bins - 1, Math.max(0, Math.floor((thr - lo) / rng * bins)));
+  $id('wfCalChart').innerHTML = bars.map(function (v, i) { return '<div class="bar" style="height:' + (v / maxH * 55) + 'px;background:' + (i === thrBin ? 'var(--red)' : 'var(--cyan)') + ';flex:1;min-width:2px;" title="' + v + '"></div>'; }).join('');
+  $id('wfCalLabels').innerHTML = lbls.map(function (t) { return '<span>' + t + '</span>'; }).join('');
+  $id('wfCalSummary').innerHTML = '阈值: <b style="color:var(--red);">' + thr.toFixed(4) + '</b> | 均值: ' + mean.toFixed(4) + ' | 标准差: ' + std.toFixed(4) + ' | P99: ' + p99.toFixed(4);
+  toast('标定完成，阈值: ' + thr.toFixed(4), 'ok');
+  renderWorkflow();
+}
 
-  var btn = document.getElementById('trainBtn');
-  btn.disabled = true;
-  btn.classList.add('btn-loading');
-  btn.textContent = '';
-  hideError('trainError');
-  document.getElementById('trainResult').style.display = 'none';
-
+async function wfDoDetect() {
+  var fi = $id('wfDetectFile');
+  if (!fi.files || !fi.files[0]) { showE('wfDetectError', '请选择测试图像'); return; }
+  var st = await checkSilent(); if (!st || !st.is_trained) { toast('请先构建记忆库', 'err'); return; }
+  var fd = new FormData(); fd.append('file', fi.files[0]);
+  fd.append('viz_mode', $id('wfVizMode').value);
+  fd.append('return_heatmap', 'true');
+  fd.append('bbox_threshold', parseFloat($id('wfBboxThr').value));
+  fd.append('enable_localization', $id('wfEnableLoc').checked);
+  fd.append('crop_to_roi', $id('wfEnableLoc').checked);
+  fd.append('localization_method', 'auto');
+  var btn = $id('wfDetectBtn'); btn.disabled = true; btn.classList.add('btn-loading'); btn.textContent = '';
   try {
-    var resp = await fetch(BASE + '/api/train', { method: 'POST', body: formData });
-    var data = await resp.json();
-
-    if (!resp.ok) {
-      showError('trainError', data.detail || '训练失败');
-      showToast('训练失败');
-      return;
+    var r = await fetch(BASE + '/api/detect', { method: 'POST', body: fd }); var d = await r.json();
+    if (!r.ok) { showE('wfDetectError', d.detail || '检测失败'); return; }
+    // Show result in preview with double-check pipeline
+    var s = d.anomaly_score, isA = d.is_anomaly;
+    var displayScore = d.fused_score || s;
+    var dcInfo = '';
+    if (d.graph_check && d.graph_check.available) {
+      dcInfo = '<div style="margin-top:6px;display:flex;align-items:center;gap:4px;font-size:8px;justify-content:center;">' +
+        '<span style="color:var(--cyan);">像素</span><span style="color:var(--text3);">→</span>' +
+        '<span style="color:var(--green);">图结构(' + (d.structural_score||0).toFixed(3) + ')</span><span style="color:var(--text3);">→</span>' +
+        '<span style="color:var(--cyan);font-weight:600;">融合 ' + displayScore.toFixed(4) + '</span></div>';
+    } else if (d.layoutad && d.layoutad.available) {
+      dcInfo = '<div style="margin-top:6px;display:flex;align-items:center;gap:4px;font-size:8px;justify-content:center;">' +
+        '<span style="color:var(--cyan);">像素</span><span style="color:var(--text3);">→</span>' +
+        '<span style="color:var(--green);">LayoutAD(' + (d.layout_score||0).toFixed(3) + ')</span><span style="color:var(--text3);">→</span>' +
+        '<span style="color:var(--cyan);font-weight:600;">融合 ' + displayScore.toFixed(4) + '</span></div>';
     }
+    $id('wfDetectError').classList.remove('show');
+    var prev = $id('wfPreview');
+    if (d.visualization) {
+      prev.innerHTML = '<img src="data:image/png;base64,' + d.visualization + '" style="width:100%;height:100%;object-fit:contain;">' +
+        '<div style="position:absolute;top:6px;right:8px;font-family:var(--mono);font-size:9px;padding:2px 6px;background:rgba(0,0,0,0.7);border:1px solid ' + (isA ? 'var(--red)' : 'var(--border)') + ';color:' + (isA ? 'var(--red)' : 'var(--green)') + ';">' + (isA ? '缺陷' : '正常') + ' | ' + displayScore.toFixed(4) + '</div>' +
+        dcInfo;
+    }
+    D.currentData = d; addToHistory(d);
+    toast((isA ? '缺陷 ' : '正常 ') + displayScore.toFixed(4), isA ? 'err' : 'ok');
+  } catch (e) { showE('wfDetectError', e.message); }
+  finally { btn.disabled = false; btn.classList.remove('btn-loading'); btn.textContent = '执行检测'; }
+}
 
-    var resultEl = document.getElementById('trainResult');
-    resultEl.style.display = 'block';
-    resultEl.innerHTML = '训练成功！PCA 组件数: ' + data.pca_components +
-      ' | 特征维度: ' + data.feature_dim +
-      ' | 模板数: ' + data.num_templates +
-      ' | 耗时: ' + data.training_time_ms + 'ms';
-
-    showToast('训练完成');
-    await checkStatus();
-  } catch(e) {
-    showError('trainError', '网络错误: ' + e.message);
-    showToast('训练失败');
-  } finally {
-    btn.disabled = false;
-    btn.classList.remove('btn-loading');
-    btn.textContent = '训练模型';
-  }
+// ============================================================
+// INSPECT PAGE
+// ============================================================
+// Drag & drop for inspect page
+dd('detectDropZone', 'detectFile', function () {
+  var f = $id('detectFile').files[0];
+  if (f) {
+    $id('detectDropZone').classList.add('has'); $id('detectDropZone').querySelector('.drop-z-text').textContent = f.name.toUpperCase();
+    var reader = new FileReader(); reader.onload = function (e) {
+      var img = $id('camImage'); img.src = e.target.result; img.dataset.original = e.target.result;
+      img.style.display = 'block'; $id('camEmpty').style.display = 'none';
+      document.querySelector('#page-inspect .view-mode[data-view="visualization"]').click();
+    }; reader.readAsDataURL(f);
+    $id('detectBtn').disabled = false;
+  } else { $id('detectDropZone').classList.remove('has'); $id('detectDropZone').querySelector('.drop-z-text').textContent = '拖放测试图像'; }
 });
 
-// ===== Reset =====
-document.getElementById('resetBtn').addEventListener('click', async function() {
-  if (!confirm('确定要重置检测器吗？已训练的模型将被清除。')) return;
+// View modes
+document.querySelectorAll('#page-inspect .view-mode').forEach(function (vm) {
+  vm.addEventListener('click', function () {
+    document.querySelectorAll('#page-inspect .view-mode').forEach(function (x) { x.classList.remove('active'); });
+    this.classList.add('active');
+    var view = this.dataset.view, img = $id('camImage');
+    if (view === 'original') img.src = img.dataset.original || '';
+    else if (view === 'heatmap') img.src = img.dataset.heatmap || '';
+    else if (view === 'visualization') img.src = img.dataset.viz || '';
+  });
+});
 
-  var btn = document.getElementById('resetBtn');
-  btn.disabled = true;
-  btn.textContent = '重置中...';
-
+// Detect button
+$id('detectBtn').addEventListener('click', async function () {
+  var fi = $id('detectFile'); if (!fi.files || !fi.files[0]) { showE('detectError', '未选择图像'); return; }
+  var fd = new FormData(); fd.append('file', fi.files[0]);
+  fd.append('viz_mode', $id('vizMode').value); fd.append('return_heatmap', 'true');
+  fd.append('bbox_threshold', parseFloat($id('bboxThreshold').value));
+  fd.append('enable_localization', $id('enableLocalization').checked);
+  fd.append('crop_to_roi', $id('enableLocalization').checked);
+  fd.append('localization_method', 'auto');
+  var btn = $id('detectBtn'); btn.disabled = true; btn.classList.add('btn-loading'); btn.textContent = '';
   try {
-    var resp = await fetch(BASE + '/api/reset', { method: 'POST' });
-    var data = await resp.json();
+    var r = await fetch(BASE + '/api/detect', { method: 'POST', body: fd }); var d = await r.json();
+    if (!r.ok) { showE('detectError', d.detail || '检测失败'); toast('检测失败', 'err'); return; }
+    D.currentData = d; showInspectResult(d); addToHistory(d);
+  } catch (e) { showE('detectError', e.message); }
+  finally { btn.disabled = false; btn.classList.remove('btn-loading'); btn.textContent = '执行检测'; }
+});
 
-    if (resp.ok) {
-      await checkStatus();
-      document.getElementById('results').style.display = 'none';
-      showToast('已重置');
+function showInspectResult(d) {
+  var s = d.anomaly_score, isA = d.is_anomaly;
+  // Fused score takes priority if available
+  var displayScore = d.fused_score || s;
+  $id('resultScore').textContent = displayScore.toFixed(4);
+  $id('resultScore').className = 'big-value ' + (isA ? 'err' : displayScore > d.threshold * 0.7 ? 'warn' : 'ok');
+  $id('resultTag').textContent = isA ? '异常' : '正常';
+  $id('resultTag').className = 'tag ' + (isA ? 'err' : 'ok');
+  $id('resultLabel').textContent = d.fused_score ? '融合分数' : '异常分数';
+  $id('resultThr').textContent = d.threshold.toFixed(2);
+  $id('resultTime').textContent = d.inference_time_ms + ' ms';
+  $id('resultLoc').textContent = d.localization ? d.localization.method.toUpperCase() + ' (' + (d.localization.confidence * 100).toFixed(0) + '%)' : '未启用';
+  $id('resultBlock').style.display = ''; $id('exportBtn').style.display = 'block';
+
+  // Double-check pipeline visualization
+  var dcPipe = $id('dcPipeline');
+  var hasDC = d.graph_check || d.layoutad;
+  if (hasDC) {
+    dcPipe.style.display = '';
+    // Step 2: graph check or layoutad
+    var step2 = $id('dcStep2');
+    if (d.graph_check && d.graph_check.available) {
+      step2.textContent = '图结构复核';
+      step2.style.background = 'var(--green-dim)'; step2.style.color = 'var(--green)';
+      $id('dcScore').textContent = (d.structural_score || 0).toFixed(4);
+      $id('dcScore').className = 'vv ' + (d.structural_score > 0.5 ? 'err' : 'ok');
+      $id('dcNodes').textContent = (d.graph_check.node_count || 0) + ' 个';
+    } else if (d.layoutad && d.layoutad.available) {
+      step2.textContent = 'LayoutAD GNN';
+      step2.style.background = 'var(--green-dim)'; step2.style.color = 'var(--green)';
+      $id('dcScore').textContent = (d.layout_score || 0).toFixed(4);
+      $id('dcScore').className = 'vv ' + (d.layout_score > 0.5 ? 'err' : 'ok');
+      $id('dcNodes').textContent = (d.layoutad.node_count || 0) + ' 个';
     } else {
-      showToast(data.detail || '重置失败');
+      step2.textContent = '图结构复核';
+      step2.style.background = 'var(--orange-dim)'; step2.style.color = 'var(--orange)';
+      $id('dcScore').textContent = '不可用';
+      $id('dcScore').className = 'vv';
+      $id('dcNodes').textContent = '--';
     }
-  } catch(e) {
-    showToast('网络错误: ' + e.message);
-  } finally {
-    btn.disabled = false;
-    btn.textContent = '重置';
+    // Fusion method
+    var method = d.fusion_method || 'subspace_only';
+    var methodNames = {graph_structure:'图结构融合', layoutad_gnn:'LayoutAD GNN融合', weighted:'加权融合', subspace_only:'仅像素检测'};
+    $id('dcMethod').textContent = methodNames[method] || method;
+    $id('dcMethod').className = 'vv ' + (method !== 'subspace_only' ? 'ok' : '');
+    // Final step
+    var dcFinal = $id('dcFinal');
+    dcFinal.textContent = d.fused_score ? '融合判定' : '像素判定';
+    dcFinal.style.background = d.fused_score ? 'var(--cyan-dim)' : 'var(--surface2)';
+    dcFinal.style.color = d.fused_score ? 'var(--cyan)' : 'var(--text2)';
+  } else {
+    dcPipe.style.display = 'none';
   }
+  $id('exportBtn').onclick = function () { exportRpt(d); };
+  var img = $id('camImage');
+  if (d.heatmap) { img.dataset.heatmap = 'data:image/png;base64,' + d.heatmap; }
+  if (d.visualization) { img.dataset.viz = 'data:image/png;base64,' + d.visualization; document.querySelector('#page-inspect .view-mode[data-view="visualization"]').click(); }
+  var hud = $id('camHud'); hud.innerHTML = '';
+  if (d.localization) { var bbox = d.localization.bbox; hud.innerHTML += '<div class="roi-box" style="left:' + bbox[0] + '%;top:' + bbox[1] + '%;width:' + bbox[2] + '%;height:' + bbox[3] + '%;"><span class="roi-label">ROI</span></div>'; }
+  $id('camStatus').textContent = (isA ? '缺陷 | ' : '通过 | ') + s.toFixed(4);
+  $id('camStatus').style.color = isA ? 'var(--red)' : 'var(--green)';
+  $id('camStatus').style.borderColor = isA ? 'var(--red)' : 'var(--border)';
+  toast(isA ? '缺陷 ' + s.toFixed(4) : '正常 ' + s.toFixed(4), isA ? 'err' : 'ok');
+}
+
+function exportRpt(d) {
+  var rpt = { timestamp: new Date().toISOString(), anomaly_score: d.anomaly_score, is_anomaly: d.is_anomaly, threshold: d.threshold, inference_time_ms: d.inference_time_ms, localization: d.localization || null };
+  var b = new Blob([JSON.stringify(rpt, null, 2)], { type: 'application/json' });
+  var a = document.createElement('a'); a.href = URL.createObjectURL(b); a.download = 'subspacead-' + new Date().toISOString().slice(0, 19).replace(/:/g, '-') + '.json'; a.click();
+  toast('报告已导出', 'ok');
+}
+
+// Reset (via topbar or sidebar could add, keep accessible)
+// Add reset to analytics page or accessible via system info
+
+// ============================================================
+// BATCH PAGE
+// ============================================================
+function initBatch() {
+  var inp = $id('batchFiles');
+  // Clean slate
+  $id('batchDropZone').classList.remove('has');
+  $id('batchDropZone').querySelector('.drop-z-text').textContent = '拖放多张图像';
+  $id('batchProgBar').style.display = 'none'; $id('batchProgText').style.display = 'none';
+  $id('batchSummary').textContent = '';
+  $id('batchResultTbl').querySelector('tbody').innerHTML = '<tr><td colspan="5" style="color:var(--text3);text-align:center;">等待上传</td></tr>';
+}
+
+dd('batchDropZone', 'batchFiles', async function () {
+  var files = $id('batchFiles').files;
+  if (!files.length) return;
+  var st = await checkSilent(); if (!st || !st.is_trained) { toast('请先构建记忆库', 'err'); return; }
+  $id('batchProgBar').style.display = ''; $id('batchProgText').style.display = '';
+  var tbody = $id('batchResultTbl').querySelector('tbody');
+  tbody.innerHTML = '';
+  var okCount = 0, ngCount = 0;
+  for (var i = 0; i < files.length; i++) {
+    var fd = new FormData(); fd.append('file', files[i]); fd.append('return_heatmap', 'false'); fd.append('enable_localization', 'false');
+    var row = tbody.insertRow();
+    row.innerHTML = '<td>' + (i + 1) + '</td><td style="font-size:9px;">' + files[i].name + '</td><td>...</td><td>...</td><td>...</td>';
+    try {
+      var r = await fetch(BASE + '/api/detect', { method: 'POST', body: fd }); var d = await r.json();
+      var isA = d.is_anomaly;
+      if (isA) ngCount++; else okCount++;
+      row.cells[2].innerHTML = '<span style="color:' + (isA ? 'var(--red)' : 'var(--green)') + ';">' + d.anomaly_score.toFixed(4) + '</span>';
+      row.cells[3].innerHTML = '<span class="tag ' + (isA ? 'err' : 'ok') + '">' + (isA ? '异常' : '正常') + '</span>';
+      row.cells[4].textContent = d.inference_time_ms + 'ms';
+      addToHistory(d);
+    } catch (e) { row.cells[2].textContent = 'ERR'; row.cells[3].textContent = e.message; }
+    $id('batchFill').style.width = ((i + 1) / files.length * 100) + '%';
+    $id('batchProgText').textContent = (i + 1) + '/' + files.length;
+  }
+  $id('batchFill').style.background = 'var(--green)';
+  $id('batchSummary').textContent = '共 ' + files.length + ' 张 | 正常 ' + okCount + ' | 异常 ' + ngCount;
+  refreshRecentTable(); toast('批量检测完成', 'ok');
 });
 
-// ===== Detect =====
-document.getElementById('detectBtn').addEventListener('click', async function() {
-  var fileInput = document.getElementById('detectFile');
-  if (!fileInput.files || !fileInput.files[0]) {
-    showError('detectError', '请选择待检测图像');
+// ============================================================
+// LIVE PAGE
+// ============================================================
+function initLive() {
+  setTimeout(async function () {
+    // Enumerate cameras
+    try {
+      var initStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      initStream.getTracks().forEach(function (t) { t.stop(); });
+      var devices = await navigator.mediaDevices.enumerateDevices();
+      _live.cameras = devices.filter(function (d) { return d.kind === 'videoinput'; });
+      var sel = $id('liveCamSelect');
+      sel.innerHTML = _live.cameras.map(function (c, i) { return '<option value="' + c.deviceId + '">' + (c.label || '摄像头 ' + (i + 1)) + '</option>'; }).join('');
+      if (_live.cameras.length > 0) { _live.deviceId = _live.cameras[0].deviceId; }
+      else { sel.innerHTML = '<option value="">无可用摄像头</option>'; }
+    } catch (e) { $id('liveCamSelect').innerHTML = '<option value="">无摄像头权限</option>'; }
+
+    // Source tabs
+    document.querySelectorAll('#liveSrcTabs .wc-src-tab').forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        document.querySelectorAll('#liveSrcTabs .wc-src-tab').forEach(function (t) { t.classList.remove('active'); });
+        tab.classList.add('active');
+        _live.source = tab.dataset.src;
+        if (_live.source === 'camera') { $id('liveCamSelect').style.display = ''; $id('liveVideoDrop').style.display = 'none'; startLiveCamera(); }
+        else { $id('liveCamSelect').style.display = 'none'; $id('liveVideoDrop').style.display = ''; setupLiveVideo(); }
+        cleanupLive();
+      });
+    });
+
+    $id('liveCamSelect').addEventListener('change', function () { _live.deviceId = this.value; startLiveCamera(); });
+
+    // Start camera by default
+    startLiveCamera();
+  }, 200);
+}
+
+async function startLiveCamera() {
+  if (_live.source !== 'camera') return;
+  cleanupLive();
+  try {
+    var constraints = { video: { width: 640, height: 480 }, audio: false };
+    if (_live.deviceId) constraints.video.deviceId = { exact: _live.deviceId };
+    _live.stream = await navigator.mediaDevices.getUserMedia(constraints);
+    var video = $id('liveVideo'); video.srcObject = _live.stream; video.style.display = '';
+    var canvas = $id('liveOverlay');
+    video.addEventListener('loadedmetadata', function () { canvas.width = video.videoWidth; canvas.height = video.videoHeight; }, { once: true });
+    $id('liveEmpty').style.display = 'none';
+    $id('liveStatusText').textContent = '摄像头就绪 | 点击画面开始/暂停检测';
+    $id('liveViewStatus').textContent = '就绪';
+    // Click to toggle
+    $id('liveView').onclick = function (e) {
+      if (e.target.closest('#liveSrcTabs') || e.target.tagName === 'SELECT' || e.target.tagName === 'OPTION') return;
+      if (_live.detecting) { _live.detecting = false; if (_live.timer) { clearInterval(_live.timer); _live.timer = null; } $id('liveViewStatus').textContent = '已暂停'; return; }
+      checkSilent().then(function (s) { if (!s || !s.is_trained) { toast('请先构建记忆库', 'err'); return; } });
+      _live.detecting = true; $id('liveViewStatus').textContent = '检测中...'; $id('liveViewStatus').style.color = 'var(--cyan)';
+      _live.timer = setInterval(async function () {
+        if (!_live.detecting) return;
+        var ctx = canvas.getContext('2d'); ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        canvas.toBlob(async function (blob) {
+          if (!_live.detecting) return;
+          var fd = new FormData(); fd.append('file', blob, 'cam.jpg'); fd.append('return_heatmap', 'false'); fd.append('enable_localization', 'false');
+          try {
+            var r = await fetch(BASE + '/api/detect', { method: 'POST', body: fd }); var d = await r.json();
+            var oc = canvas.getContext('2d'); oc.fillStyle = d.is_anomaly ? 'rgba(224,64,72,0.25)' : 'rgba(40,184,80,0.12)';
+            oc.fillRect(0, 0, canvas.width, canvas.height);
+            setTimeout(function () { oc.clearRect(0, 0, canvas.width, canvas.height); }, 150);
+            $id('liveViewStatus').textContent = (d.is_anomaly ? '缺陷' : '正常') + ' | ' + d.anomaly_score.toFixed(4);
+            $id('liveViewStatus').style.color = d.is_anomaly ? 'var(--red)' : 'var(--green)';
+          } catch (e) { }
+        }, 'image/jpeg', 0.8);
+      }, 1000);
+    };
+  } catch (e) { $id('liveStatusText').textContent = '摄像头错误: ' + e.message; }
+}
+
+function setupLiveVideo() {
+  $id('liveVideo').style.display = 'none'; $id('liveEmpty').style.display = '';
+  $id('liveStatusText').textContent = '视频模式 | 拖放文件开始检测';
+
+  var drop = $id('liveVideoDrop'), inp = $id('liveVideoFile');
+  drop.ondragover = function (e) { e.preventDefault(); drop.style.borderColor = 'var(--cyan)'; };
+  drop.ondragleave = function () { drop.style.borderColor = ''; };
+  drop.ondrop = function (e) { e.preventDefault(); drop.style.borderColor = ''; inp.files = e.dataTransfer.files; processLiveVideo(inp.files[0]); };
+  var newInp = inp.cloneNode(true); inp.parentNode.replaceChild(newInp, inp);
+  newInp.addEventListener('change', function () { if (newInp.files[0]) processLiveVideo(newInp.files[0]); });
+}
+
+async function processLiveVideo(file) {
+  if (!file) return;
+  var s = await checkSilent(); if (!s || !s.is_trained) { toast('请先构建记忆库', 'err'); return; }
+  $id('liveEmpty').style.display = 'none';
+  var video = $id('liveVideo'); video.src = URL.createObjectURL(file); video.style.display = ''; video.loop = false; video.muted = true;
+  $id('liveVideoDrop').style.display = 'none';
+  $id('liveViewStatus').textContent = '视频就绪 | 点击画面开始检测';
+  $id('liveViewStatus').style.color = 'var(--green)';
+
+  $id('liveView').onclick = async function () {
+    if (_live.detecting) return;
+    _live.detecting = true; $id('liveViewStatus').textContent = '上传检测中...'; $id('liveViewStatus').style.color = 'var(--cyan)';
+    var fd = new FormData(); fd.append('file', file); fd.append('sample_every', '10'); fd.append('max_frames', '200');
+    try {
+      var r = await fetch(BASE + '/api/detect-video', { method: 'POST', body: fd }); var d = await r.json();
+      if (!r.ok) { $id('liveViewStatus').textContent = '检测失败'; _live.detecting = false; return; }
+      var sum = d.summary;
+      $id('liveViewStatus').innerHTML = '完成: ' + sum.total_frames_scanned + '帧 | 异常 ' + sum.anomaly_frame_count + '/' + sum.total_frames_scanned + ' | 最高分 ' + sum.max_anomaly_score.toFixed(4);
+      $id('liveViewStatus').style.color = sum.anomaly_frame_count > 0 ? 'var(--red)' : 'var(--green)';
+      d.frames.forEach(function (f) { addToHistory({ ts: Date.now(), score: f.anomaly_score, is_anomaly: f.is_anomaly, threshold: 0.3, time_ms: 0 }); });
+      refreshRecentTable();
+      // Score chart
+      var scores = d.frames.map(function (f) { return f.anomaly_score; });
+      if (scores.length > 1) {
+        var w = 500, h = 80, pad = 8;
+        var tMin = Math.min.apply(null, scores), tMax = Math.max.apply(null, scores), tRng = (tMax - tMin) || 0.01;
+        var pts = scores.map(function (v, j) { return (pad + (j / (scores.length - 1)) * (w - pad * 2)) + ',' + (pad + (h - pad * 2) - ((v - tMin) / tRng) * (h - pad * 2)); }).join(' ');
+        var chart = document.createElement('div');
+        chart.style.cssText = 'position:absolute;bottom:30px;left:10px;right:10px;height:80px;pointer-events:none;';
+        chart.innerHTML = '<svg viewBox="0 0 ' + w + ' ' + h + '"><polyline points="' + pts + '" fill="none" stroke="#00a8cc" stroke-width="1.5"/></svg>';
+        $id('liveView').appendChild(chart);
+      }
+    } catch (e) { $id('liveViewStatus').textContent = '检测失败: ' + e.message; }
+    _live.detecting = false;
+  };
+}
+
+function cleanupLive() {
+  if (_live.stream) { _live.stream.getTracks().forEach(function (t) { t.stop(); }); _live.stream = null; }
+  if (_live.timer) { clearInterval(_live.timer); _live.timer = null; }
+  _live.detecting = false;
+  var video = $id('liveVideo'); if (video) video.srcObject = null;
+}
+
+// ============================================================
+// ANALYTICS PAGE
+// ============================================================
+function refreshAnalytics() {
+  if (!D.history.length) {
+    $id('aTotal').textContent = '0'; $id('aPassRate').textContent = '--'; $id('aFailRate').textContent = '--';
+    $id('aMean').textContent = '--'; $id('aTime').textContent = '--';
     return;
   }
+  var scores = D.history.map(function (h) { return h.score; });
+  var normal = scores.filter(function (s, i) { return !D.history[i].is_anomaly; });
+  var anomaly = scores.filter(function (s, i) { return D.history[i].is_anomaly; });
+  var times = D.history.map(function (h) { return h.time_ms; }).filter(function (t) { return t > 0; });
+  $id('aTotal').textContent = D.history.length;
+  $id('aPassRate').textContent = (normal.length / scores.length * 100).toFixed(1) + '%';
+  $id('aFailRate').textContent = (anomaly.length / scores.length * 100).toFixed(1) + '%';
+  $id('aMean').textContent = (scores.reduce(function (a, b) { return a + b; }, 0) / scores.length).toFixed(4);
+  $id('aTime').textContent = times.length ? Math.round(times.reduce(function (a, b) { return a + b; }, 0) / times.length) + ' ms' : '--';
+  refreshRecentTable();
 
-  var formData = new FormData();
-  formData.append('file', fileInput.files[0]);
-  formData.append('viz_mode', document.getElementById('vizMode').value);
-  formData.append('return_heatmap', 'true');
-  formData.append('bbox_threshold', parseFloat(document.getElementById('bboxThreshold').value));
-
-  var btn = document.getElementById('detectBtn');
-  btn.disabled = true;
-  btn.classList.add('btn-loading');
-  btn.textContent = '';
-  hideError('detectError');
-
-  try {
-    var resp = await fetch(BASE + '/api/detect', { method: 'POST', body: formData });
-    var data = await resp.json();
-
-    if (!resp.ok) {
-      showError('detectError', data.detail || '检测失败');
-      showToast('检测失败');
-      return;
-    }
-
-    document.getElementById('results').style.display = 'block';
-
-    document.getElementById('scoreValue').textContent = data.anomaly_score.toFixed(4);
-    document.getElementById('thresholdLabel').textContent = data.threshold.toFixed(2);
-    document.getElementById('timeLabel').textContent = data.inference_time_ms;
-
-    var statusEl = document.getElementById('scoreStatus');
-    if (data.is_anomaly) {
-      statusEl.textContent = '异常 — ANOMALY';
-      statusEl.className = 'score-status anomaly';
-      showToast('检测到异常！分数: ' + data.anomaly_score.toFixed(4));
-    } else {
-      statusEl.textContent = '正常 — NORMAL';
-      statusEl.className = 'score-status normal';
-      showToast('正常，分数: ' + data.anomaly_score.toFixed(4));
-    }
-
-    if (data.heatmap) {
-      document.getElementById('heatmapImg').src = 'data:image/png;base64,' + data.heatmap;
-    }
-    if (data.visualization) {
-      document.getElementById('vizImg').src = 'data:image/png;base64,' + data.visualization;
-    }
-  } catch(e) {
-    showError('detectError', '网络错误: ' + e.message);
-    showToast('检测失败');
-  } finally {
-    btn.disabled = false;
-    btn.classList.remove('btn-loading');
-    btn.textContent = '检测';
+  // Trend chart
+  var trendScores = D.history.map(function (h) { return h.score; }).reverse();
+  if (trendScores.length > 1) {
+    var w = 600, h = 160, pad = 20;
+    var tMin = Math.min.apply(null, trendScores), tMax = Math.max.apply(null, trendScores), tRng = (tMax - tMin) || 0.01;
+    var pts = trendScores.map(function (s, i) { return (pad + (i / (trendScores.length - 1)) * (w - pad * 2)) + ',' + (pad + (h - pad * 2) - ((s - tMin) / tRng) * (h - pad * 2)); }).join(' ');
+    var thr = D.history[0].threshold || 0.3;
+    var thrY = pad + (h - pad * 2) - ((thr - tMin) / tRng) * (h - pad * 2);
+    $id('trendChart').innerHTML =
+      '<div class="line-chart" style="height:160px;"><svg viewBox="0 0 ' + w + ' ' + h + '">' +
+      '<line x1="' + pad + '" y1="' + thrY + '" x2="' + (w - pad) + '" y2="' + thrY + '" stroke="var(--red)" stroke-width="1" stroke-dasharray="4,3"/>' +
+      '<polyline points="' + pts + '" fill="none" stroke="var(--cyan)" stroke-width="2"/>' +
+      '<text x="' + (w - pad - 4) + '" y="' + (thrY - 4) + '" font-size="9" fill="var(--red)" text-anchor="end" font-family="var(--mono)">阈值</text>' +
+      '</svg></div><div style="font-size:10px;color:var(--text2);margin-top:6px;text-align:center;font-family:var(--mono);">分数趋势（' + trendScores.length + ' 样本）</div>';
   }
-});
+}
 
-// Initial status check
+// ============================================================
+// INIT
+// ============================================================
 checkStatus();
+hashToPage();
+refreshRecentTable();
 </script>
 </body>
 </html>

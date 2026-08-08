@@ -2,9 +2,9 @@ __pycache__
 *.pyc
 .git
 .gitignore
-*.md
 datas/
 .gitattributes
 weights/*.bin
 weights/*.safetensors
 weights/*.pt
+ModelScope_token

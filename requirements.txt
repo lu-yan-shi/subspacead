@@ -1,13 +1,12 @@
 torch
 torchvision
 transformers
-opencv-python
+opencv-python-headless
 kornia
 numpy
 pandas
 scikit-learn
 Pillow
-anomalib
 tqdm
 fastapi
 uvicorn
@@ -16,5 +15,11 @@ psutil
 httpx
 pynvml>=11.5.0
 
-# ModelScope — 自动下载模型权重
-modelscope>=1.0.0
+# SubspaceAD dependencies (training-free anomaly detection)
+timm>=1.0.0
+anomalib
+torchmetrics
+
+# LayoutAD double-check (GNN-based structural verification)
+torch-scatter>=2.1.0
+torch-geometric>=2.5.0

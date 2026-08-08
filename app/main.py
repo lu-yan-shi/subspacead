@@ -13,11 +13,24 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 
 from .config import (
     DEFAULT_IMAGE_RES,
-    DEFAULT_PCA_EV,
-    DEFAULT_SCORE_METHOD,
+    ENABLE_LAYOUTAD,
+    LAYOUTAD_CHECKPOINT,
+    LAYOUTAD_MASK2FORMER_CONFIG,
+    LAYOUTAD_MASK2FORMER_WEIGHTS,
+    LAYOUTAD_PIPELINE_MODE,
+    SUBSPACE_CORESET_RATIO,
+    SUBSPACE_CORESET_SEED,
+    SUBSPACE_LAYER_FUSION,
+    SUBSPACE_LAYERS,
+    SUBSPACE_KNN_K,
+    SUBSPACE_KNN_TEMPERATURE,
+    SUBSPACE_SIMILARITY_AGGREGATION,
+    MODEL_PATH,
     MONITOR_PATHS,
+    PUBLIC_BASE_URL,
     SERVICE_DESCRIPTION,
     SERVICE_NAME,
+    SERVICE_PORT,
     SERVICE_VERSION,
 )
 from .mse.logging import init_log_capture, shutdown_log_capture
@@ -38,17 +51,42 @@ async def lifespan(app: FastAPI):
     app.state.cpu_monitor = CpuSpikeMonitor()
     app.state.cpu_monitor.start()
 
-    from models.detector import SubspaceAnomalyDetector
+    try:
+        from models.detector import SubspaceAnomalyDetector
 
-    app.state.detector = SubspaceAnomalyDetector(
-        image_res=DEFAULT_IMAGE_RES,
-        pca_ev=DEFAULT_PCA_EV,
-        score_method=DEFAULT_SCORE_METHOD,
-    )
-    app.state.is_trained = False
-    app.state.train_info = {}
-
-    logger.info("SubspaceAnomalyDetector initialized (device=%s)", app.state.detector.device)
+        app.state.detector = SubspaceAnomalyDetector(
+            model_path=MODEL_PATH,
+            image_res=DEFAULT_IMAGE_RES,
+            similarity_aggregation=SUBSPACE_SIMILARITY_AGGREGATION,
+            layer_fusion=SUBSPACE_LAYER_FUSION,
+            layers=SUBSPACE_LAYERS,
+            coreset_ratio=SUBSPACE_CORESET_RATIO,
+            coreset_seed=SUBSPACE_CORESET_SEED,
+            knn_k=SUBSPACE_KNN_K,
+            knn_temperature=SUBSPACE_KNN_TEMPERATURE,
+            enable_layoutad=ENABLE_LAYOUTAD,
+            layoutad_checkpoint=LAYOUTAD_CHECKPOINT,
+            layoutad_mask2former_config=LAYOUTAD_MASK2FORMER_CONFIG,
+            layoutad_mask2former_weights=LAYOUTAD_MASK2FORMER_WEIGHTS,
+        )
+        if not app.state.detector.weights_ready():
+            model_path = app.state.detector.model_path
+            logger.error(
+                "Model weights not found at %s — detector disabled. 请检查入口脚本/模型 volume。",
+                model_path,
+            )
+            app.state.detector = None
+            app.state.is_trained = False
+            app.state.train_info = {"error": f"模型权重缺失: {model_path}"}
+        else:
+            app.state.is_trained = False
+            app.state.train_info = {}
+            logger.info("SubspaceAnomalyDetector initialized (device=%s)", app.state.detector.device)
+    except Exception as e:
+        logger.error("Failed to initialize detector: %s", e)
+        app.state.detector = None
+        app.state.is_trained = False
+        app.state.train_info = {"error": str(e)}
 
     await notify_mesquare_api_change("service_restarted")
     yield
@@ -68,7 +106,13 @@ def create_app() -> FastAPI:
 
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
+        # 显式白名单：allow_origins="*" 与 allow_credentials=True 组合会被浏览器拒绝。
+        # 服务自身 origin + 本机访问可覆盖管理页面与内网调用方。
+        allow_origins=[
+            PUBLIC_BASE_URL,
+            f"http://localhost:{SERVICE_PORT}",
+            f"http://127.0.0.1:{SERVICE_PORT}",
+        ],
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

@@ -1,9 +1,11 @@
 """Business API routes — SubspaceAD anomaly detection endpoints."""
 
+import asyncio
 import base64
 import io
 import logging
 import os
+import tempfile
 import time
 from pathlib import Path
 from typing import List, Optional
@@ -11,22 +13,44 @@ from typing import List, Optional
 import cv2
 import numpy as np
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
 from PIL import Image
 
 from ..config import (
     BUSINESS_PREFIX,
+    DEFAULT_CROP_TO_ROI,
     DEFAULT_IMAGE_RES,
-    DEFAULT_PCA_EV,
-    DEFAULT_SCORE_METHOD,
+    DEFAULT_LOCALIZATION_METHOD,
+    DEFAULT_LOCALIZE,
+    SUBSPACE_CORESET_RATIO,
+    SUBSPACE_CORESET_SEED,
+    SUBSPACE_KNN_K,
+    SUBSPACE_KNN_TEMPERATURE,
+    SUBSPACE_LAYER_FUSION,
+    SUBSPACE_LAYERS,
+    SUBSPACE_SIMILARITY_AGGREGATION,
     MAX_FILE_SIZE_MB,
+    ROI_MARGIN_RATIO,
     SERVICE_NAME,
     SERVICE_VERSION,
 )
-from models.detector import SubspaceAnomalyDetector
+try:
+    from models.detector import SubspaceAnomalyDetector
+except ImportError:
+    SubspaceAnomalyDetector = None  # type: ignore
+from models.subspacead.utils.viz import (
+    create_heatmap,
+    ensure_rgb,
+    find_defect_bbox,
+    render_visualization,
+)
 
 business_router = APIRouter(prefix=BUSINESS_PREFIX, tags=["Business"])
 logger = logging.getLogger(__name__)
+
+# 检测器访问串行化：单模型、单记忆库，train/detect/reset 本就该互斥执行。
+# 推理是同步 CPU/GPU 密集操作，用 asyncio.to_thread 挪出事件循环，
+# 保证推理期间 /mse/health、/api/status 仍可响应（否则整个服务卡死数秒）。
+_detector_lock = asyncio.Lock()
 
 ALLOWED_EXTENSIONS = {"png", "jpg", "jpeg", "bmp", "tiff"}
 
@@ -46,74 +70,6 @@ def _numpy_to_base64(img_np: np.ndarray) -> str:
     else:
         img_rgb = img_np
     return _img_to_base64(Image.fromarray(img_rgb))
-
-
-def _ensure_rgb(img_np: np.ndarray) -> np.ndarray:
-    if len(img_np.shape) == 2 or img_np.shape[2] == 1:
-        return cv2.cvtColor(img_np, cv2.COLOR_GRAY2RGB)
-    return img_np
-
-
-def _create_heatmap(anom_map_norm: np.ndarray) -> np.ndarray:
-    anom_map_u8 = (np.clip(anom_map_norm, 0, 1) * 255).astype(np.uint8)
-    return cv2.applyColorMap(anom_map_u8, cv2.COLORMAP_JET)
-
-
-def _find_defect_bbox(anom_map_norm: np.ndarray, threshold: float = 0.5) -> Optional[tuple]:
-    anom_map_u8 = (anom_map_norm * 255).astype(np.uint8)
-    _, binary = cv2.threshold(anom_map_u8, int(threshold * 255), 255, cv2.THRESH_BINARY)
-    kernel = np.ones((5, 5), np.uint8)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-    contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    if not contours:
-        return None
-    largest = max(contours, key=cv2.contourArea)
-    if cv2.contourArea(largest) < 100:
-        return None
-    return cv2.boundingRect(largest)
-
-
-def generate_visualization(
-    img: Image.Image,
-    anom_map: np.ndarray,
-    viz_mode: str = "overlay",
-    score: Optional[float] = None,
-    bbox_threshold: float = 0.5,
-) -> np.ndarray:
-    h, w = anom_map.shape
-    img_np = np.array(img.resize((w, h)))
-    img_np_rgb = _ensure_rgb(img_np)
-    heatmap = _create_heatmap(anom_map)
-
-    if viz_mode == "overlay":
-        result = cv2.addWeighted(img_np_rgb, 0.6, heatmap, 0.4, 0)
-        if score is not None:
-            cv2.putText(result, f"Score: {score:.4f}", (10, 25),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-    elif viz_mode == "side_by_side":
-        left = img_np_rgb.copy()
-        cv2.putText(left, "Original", (10, 25),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-        right = cv2.addWeighted(img_np_rgb, 0.6, heatmap, 0.4, 0)
-        cv2.putText(right, "With Heatmap", (10, 25),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-        result = np.hstack([left, right])
-    elif viz_mode == "bbox":
-        result = img_np_rgb.copy()
-        bbox = _find_defect_bbox(anom_map, threshold=bbox_threshold)
-        if bbox is not None:
-            x, y, bw, bh = bbox
-            cv2.rectangle(result, (x, y), (x + bw, y + bh), (0, 0, 255), 3)
-            cv2.putText(result, f"Defect: {bw}x{bh}", (x, y - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2, cv2.LINE_AA)
-        if score is not None:
-            cv2.putText(result, f"Score: {score:.4f}", (10, 25),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
-    else:
-        raise ValueError(f"Unknown viz_mode: {viz_mode}")
-
-    return result
 
 
 # ============================================================
@@ -141,16 +97,36 @@ def _bytes_to_pil(data: bytes) -> Image.Image:
 # Business Endpoints
 # ============================================================
 
-@business_router.post("/train", summary="Train PCA Model")
+def _get_detector(request: Request):
+    """Safe detector access — returns 503 if not initialized."""
+    if SubspaceAnomalyDetector is None:
+        raise HTTPException(503, "检测器模块加载失败，请检查服务日志")
+    detector = request.app.state.detector
+    if detector is None:
+        raise HTTPException(503, "检测器未初始化，请检查服务日志")
+    return detector
+
+
+@business_router.post("/train", summary="Build Memory Bank")
 async def train(
     request: Request,
     files: List[UploadFile] = File(..., description="正常图像（1 张即可，支持多张）"),
     image_res: int = Form(DEFAULT_IMAGE_RES, description="输入分辨率"),
-    pca_ev: float = Form(DEFAULT_PCA_EV, description="PCA 保留方差比例 (0-1)"),
-    score_method: str = Form(DEFAULT_SCORE_METHOD,
-        description="评分方法: reconstruction / mahalanobis / euclidean / cosine"),
+    similarity_aggregation: str = Form(SUBSPACE_SIMILARITY_AGGREGATION,
+        description="相似度聚合: max / top1_mean / knn_weighted"),
+    layer_fusion: str = Form(SUBSPACE_LAYER_FUSION,
+        description="多层融合: score_avg / score_max / feature_avg / feature_concat"),
+    layers: str = Form(",".join(str(x) for x in SUBSPACE_LAYERS),
+        description="特征层索引，逗号分隔 (如 8,10,12)"),
+    coreset_ratio: float = Form(SUBSPACE_CORESET_RATIO,
+        description="PatchCore 式记忆库 coreset 比例: 0.0=关闭, 0.05=保留 5%"),
+    coreset_seed: int = Form(SUBSPACE_CORESET_SEED, description="coreset 采样种子"),
+    knn_k: int = Form(SUBSPACE_KNN_K,
+        description="knn_weighted 聚合的近邻数 (仅该模式生效)"),
+    knn_temperature: float = Form(SUBSPACE_KNN_TEMPERATURE,
+        description="knn_weighted 逆距离加权温度 (仅该模式生效)"),
 ):
-    """使用正常图像训练 PCA 子空间模型。"""
+    """使用正常图像构建 SubspaceAD 特征记忆库（Training-Free）。"""
     if not files or len(files) == 0:
         raise HTTPException(400, "请至少上传一张正常图像")
 
@@ -160,14 +136,22 @@ async def train(
         _validate_image(f.filename or "image.jpg", data)
         pil_images.append(_bytes_to_pil(data))
 
-    detector: SubspaceAnomalyDetector = request.app.state.detector
-    detector.image_res = image_res
-    detector.pca_ev = pca_ev
-    detector.score_method = score_method
+    detector: SubspaceAnomalyDetector = _get_detector(request)
 
     t0 = time.time()
     try:
-        train_info = detector.train(template_images=pil_images, verbose=True)
+        async with _detector_lock:
+            detector.image_res = image_res
+            detector.similarity_aggregation = similarity_aggregation
+            detector.layer_fusion = layer_fusion
+            detector.layers = tuple(int(x.strip()) for x in layers.split(",") if x.strip())
+            detector.coreset_ratio = coreset_ratio
+            detector.coreset_seed = coreset_seed
+            detector.knn_k = knn_k
+            detector.knn_temperature = knn_temperature
+            train_info = await asyncio.to_thread(
+                detector.train, template_images=pil_images, verbose=True,
+            )
     except Exception as e:
         logger.error("Training failed: %s", e)
         raise HTTPException(500, f"训练失败: {str(e)}")
@@ -176,21 +160,25 @@ async def train(
 
     request.app.state.is_trained = True
     request.app.state.train_info = {
-        "pca_components": train_info["pca_components"],
+        "num_patches": train_info["num_patches"],
         "feature_dim": train_info["feature_dim"],
-        "grid_size": train_info["grid_size"],
         "num_templates": train_info["num_templates"],
         "image_res": image_res,
-        "score_method": score_method,
+        "similarity_aggregation": similarity_aggregation,
+        "layer_fusion": layer_fusion,
+        "layers": layers,
+        "coreset_ratio": coreset_ratio,
+        "coreset_seed": coreset_seed,
+        "knn_k": knn_k,
+        "knn_temperature": knn_temperature,
     }
 
     return {
         "success": True,
-        "pca_components": train_info["pca_components"],
+        "num_patches": train_info["num_patches"],
         "feature_dim": train_info["feature_dim"],
-        "grid_size": list(train_info["grid_size"]),
         "num_templates": train_info["num_templates"],
-        "training_time_ms": round(elapsed * 1000, 1),
+        "build_time_ms": round(elapsed * 1000, 1),
     }
 
 
@@ -202,6 +190,11 @@ async def detect(
     return_heatmap: bool = Form(True, description="是否返回热力图"),
     bbox_threshold: float = Form(0.5, description="缺陷检测阈值 (仅 bbox 模式)"),
     top_k_ratio: float = Form(0.01, description="图像级分数的 top-k 比例"),
+    enable_localization: bool = Form(DEFAULT_LOCALIZE, description="是否启用目标定位"),
+    localization_method: str = Form(DEFAULT_LOCALIZATION_METHOD,
+        description="定位策略: auto / saliency / contour / manual / none"),
+    crop_to_roi: bool = Form(DEFAULT_CROP_TO_ROI, description="定位后是否裁切 ROI 检测"),
+    roi_margin: float = Form(ROI_MARGIN_RATIO, description="ROI 扩展边距比例"),
 ):
     """对上传的图像进行异常检测。需要先调用 /api/train 训练模型。"""
     if not request.app.state.is_trained:
@@ -211,19 +204,25 @@ async def detect(
     _validate_image(file.filename or "image.jpg", data)
     test_img = _bytes_to_pil(data)
 
-    detector: SubspaceAnomalyDetector = request.app.state.detector
+    detector: SubspaceAnomalyDetector = _get_detector(request)
 
     t0 = time.time()
     try:
-        results = detector.detect(
-            test_images=[test_img],
-            save_dir=None,
-            save_visualizations=False,
-            viz_mode=viz_mode,
-            bbox_threshold=bbox_threshold,
-            top_k_ratio=top_k_ratio,
-            verbose=False,
-        )
+        async with _detector_lock:
+            results = await asyncio.to_thread(
+                detector.detect,
+                test_images=[test_img],
+                save_dir=None,
+                save_visualizations=False,
+                viz_mode=viz_mode,
+                bbox_threshold=bbox_threshold,
+                top_k_ratio=top_k_ratio,
+                verbose=False,
+                enable_localization=enable_localization,
+                localization_method=localization_method,
+                crop_to_roi=crop_to_roi,
+                roi_margin=roi_margin,
+            )
     except Exception as e:
         logger.error("Detection failed: %s", e)
         raise HTTPException(500, f"检测失败: {str(e)}")
@@ -245,14 +244,40 @@ async def detect(
         "inference_time_ms": round(elapsed * 1000, 1),
     }
 
+    if "localization" in result:
+        resp["localization"] = result["localization"]
+
+    # Double-check results
+    if "graph_check" in result:
+        resp["graph_check"] = result["graph_check"]
+    if "layoutad" in result:
+        resp["layoutad"] = result["layoutad"]
+    if "fused_score" in result:
+        resp["fused_score"] = result["fused_score"]
+        resp["fusion_method"] = result.get("fusion_method", "subspace_only")
+    if "structural_score" in result:
+        resp["structural_score"] = result["structural_score"]
+    if "layout_score" in result:
+        resp["layout_score"] = result["layout_score"]
+
+    # Include SubspaceAD CLS-patch attention map (saliency)
+    if result.get("attention_map") is not None:
+        attn_map_norm = np.clip(result["attention_map"], 0, 1)
+        attn_heatmap = create_heatmap(attn_map_norm)
+        resp["attention_map"] = _numpy_to_base64(attn_heatmap)
+
     if return_heatmap:
-        heatmap_bgr = _create_heatmap(anomaly_map)
+        heatmap_bgr = create_heatmap(anomaly_map)
         resp["heatmap"] = _numpy_to_base64(heatmap_bgr)
 
     try:
-        viz_bgr = generate_visualization(
+        roi_bbox = None
+        if "localization" in result and result["localization"]:
+            roi_bbox = tuple(result["localization"]["bbox"])
+        viz_bgr = render_visualization(
             test_img, anomaly_map,
-            viz_mode=viz_mode, score=anomaly_score, bbox_threshold=bbox_threshold,
+            viz_mode=viz_mode, score=anomaly_score,
+            bbox_threshold=bbox_threshold, roi_bbox=roi_bbox,
         )
         resp["visualization"] = _numpy_to_base64(viz_bgr)
         resp["viz_mode"] = viz_mode
@@ -265,32 +290,121 @@ async def detect(
 @business_router.post("/reset", summary="Reset Detector")
 async def reset(request: Request):
     """重置检测器状态。"""
-    detector: SubspaceAnomalyDetector = request.app.state.detector
-    old_res = detector.image_res
-    old_ev = detector.pca_ev
-    old_method = detector.score_method
-    old_ckpt = detector.model_ckpt
+    async with _detector_lock:
+        detector: SubspaceAnomalyDetector = _get_detector(request)
+        old_res = detector.image_res
+        old_model_path = detector.model_path
+        old_sim_agg = detector.similarity_aggregation
+        old_fusion = detector.layer_fusion
+        old_layers = detector.layers
+        old_coreset_ratio = detector.coreset_ratio
+        old_coreset_seed = detector.coreset_seed
+        old_knn_k = detector.knn_k
+        old_knn_temperature = detector.knn_temperature
 
-    request.app.state.detector = SubspaceAnomalyDetector(
-        model_ckpt=old_ckpt, image_res=old_res,
-        pca_ev=old_ev, score_method=old_method,
-    )
-    request.app.state.is_trained = False
-    request.app.state.train_info = {}
+        request.app.state.detector = SubspaceAnomalyDetector(
+            model_path=old_model_path, image_res=old_res,
+            similarity_aggregation=old_sim_agg,
+            layer_fusion=old_fusion, layers=old_layers,
+            coreset_ratio=old_coreset_ratio,
+            coreset_seed=old_coreset_seed,
+            knn_k=old_knn_k,
+            knn_temperature=old_knn_temperature,
+        )
+        request.app.state.is_trained = False
+        request.app.state.train_info = {}
 
-    return {"success": True, "message": "检测器已重置，请重新训练"}
+    return {"success": True, "message": "检测器已重置，请重新构建记忆库"}
 
 
 @business_router.get("/status", summary="Service Status")
 async def status(request: Request):
-    """查看当前检测器状态和训练信息。"""
-    detector: SubspaceAnomalyDetector = request.app.state.detector
+    """查看当前检测器状态和记忆库信息。"""
+    detector = request.app.state.detector  # Don't use _get_detector — status should work even if detector failed
+    if detector is None:
+        return {
+            "is_trained": False,
+            "model_path": "N/A",
+            "device": "N/A",
+            "image_res": 0,
+            "similarity_aggregation": "N/A",
+            "layer_fusion": "N/A",
+            "layers": [],
+            "train_info": {"error": "detector not initialized"},
+            "error": getattr(request.app.state.train_info, "error", "detector failed to load"),
+        }
     return {
         "is_trained": request.app.state.is_trained,
-        "model": detector.model_ckpt,
+        "model_loaded": bool(getattr(detector, "is_loaded", False)),
+        "model_path": detector.model_path,
         "device": detector.device,
         "image_res": detector.image_res,
-        "pca_ev": detector.pca_ev,
-        "score_method": detector.score_method,
+        "similarity_aggregation": detector.similarity_aggregation,
+        "layer_fusion": detector.layer_fusion,
+        "layers": list(detector.layers),
         "train_info": request.app.state.train_info,
+    }
+
+
+# ============================================================
+# Video Detection
+# ============================================================
+
+@business_router.post("/detect-video", summary="Video Anomaly Detection")
+async def detect_video(
+    request: Request,
+    file: UploadFile = File(..., description="视频文件"),
+    sample_every: int = Form(10, description="每 N 帧采样一次"),
+    max_frames: int = Form(200, description="最大处理帧数"),
+):
+    """对视频逐帧进行异常检测，返回每帧分数和汇总。"""
+    if not request.app.state.is_trained:
+        raise HTTPException(400, "请先调用 /api/train 构建记忆库")
+
+    # Save uploaded video to temp file
+    data = await file.read()
+    suffix = Path(file.filename or "video.mp4").suffix or ".mp4"
+    with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+        tmp.write(data)
+        tmp_path = tmp.name
+
+    detector: SubspaceAnomalyDetector = _get_detector(request)
+
+    t0 = time.time()
+    try:
+        async with _detector_lock:
+            results = await asyncio.to_thread(
+                detector.detect_video,
+                video_path=tmp_path,
+                sample_every_n_frames=sample_every,
+                max_frames=max_frames,
+                verbose=True,
+            )
+    except Exception as e:
+        logger.error("Video detection failed: %s", e)
+        os.unlink(tmp_path)
+        raise HTTPException(500, f"视频检测失败: {str(e)}")
+    finally:
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            pass
+
+    elapsed = time.time() - t0
+    summary = results.pop() if results and results[-1].get("_summary") else {}
+
+    return {
+        "success": True,
+        "frames": results,
+        "summary": {
+            "total_frames_scanned": summary.get("total_frames_scanned", len(results)),
+            "max_anomaly_score": summary.get("max_anomaly_score", 0),
+            "max_anomaly_frame": summary.get("max_anomaly_frame", 0),
+            "max_anomaly_timestamp": summary.get("max_anomaly_timestamp", 0),
+            "anomaly_frame_count": summary.get("anomaly_frame_count", 0),
+            "anomaly_ratio": summary.get("anomaly_ratio", 0),
+            "mean_score": summary.get("mean_score", 0),
+            "fps": summary.get("fps", 0),
+        },
+        "processing_time_ms": round(elapsed * 1000, 1),
     }
