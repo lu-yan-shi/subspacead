@@ -16,7 +16,6 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from PIL import Image
 
 from ..config import (
-    AVAILABLE_MODELS,
     BUSINESS_PREFIX,
     DEFAULT_CROP_TO_ROI,
     DEFAULT_IMAGE_RES,
@@ -97,15 +96,6 @@ def _bytes_to_pil(data: bytes) -> Image.Image:
 # ============================================================
 # Business Endpoints
 # ============================================================
-
-def _is_hf_id(path: str) -> bool:
-    """判断路径是否为 Hugging Face model id（形如 org/repo）。
-
-    本地目录相对路径（如 `dinov3-vitb16-pretrain-lvd1689m`）不含 `/` 或以 `/` 开头，
-    是绝对/相对本地路径而非 HF id。
-    """
-    return "/" in path and not path.startswith("/")
-
 
 def _get_detector(request: Request):
     """Safe detector access — returns 503 if not initialized."""
@@ -327,80 +317,6 @@ async def reset(request: Request):
     return {"success": True, "message": "检测器已重置，请重新构建记忆库"}
 
 
-@business_router.get("/models", summary="List Available Models")
-async def list_models(request: Request):
-    """列出可用骨干模型（DINOv2/DINOv3）及当前激活模型。"""
-    detector = request.app.state.detector
-    current = detector.model_path if detector is not None else "N/A"
-    models = []
-    for m in AVAILABLE_MODELS:
-        available = False
-        if detector is not None:
-            path = m["path"]
-            if os.path.isdir(path):
-                available = any(
-                    os.path.isfile(os.path.join(path, name))
-                    for name in ("model.safetensors", "pytorch_model.bin")
-                )
-            elif _is_hf_id(path):
-                available = True  # HF model id 在线加载
-            # else: 本地目录路径但目录不存在 → 权重缺失, available=False
-        models.append({
-            "id": m["id"],
-            "name": m["name"],
-            "path": m["path"],
-            "default_layers": m["default_layers"],
-            "default_res": m["default_res"],
-            "available": available,
-        })
-    return {
-        "current": current,
-        "models": models,
-    }
-
-
-@business_router.post("/model/switch", summary="Switch Backbone Model")
-async def switch_model(
-    request: Request,
-    model_id: str = Form(..., description="模型 id（见 /api/models）"),
-):
-    """运行时切换骨干模型（DINOv2 ↔ DINOv3）。
-
-    切换后记忆库作废（特征不兼容），需重新调用 /api/train 构建。
-    """
-    entry = next((m for m in AVAILABLE_MODELS if m["id"] == model_id), None)
-    if entry is None:
-        raise HTTPException(400, f"未知模型 id: {model_id}，可用: {[m['id'] for m in AVAILABLE_MODELS]}")
-
-    detector: SubspaceAnomalyDetector = _get_detector(request)
-
-    # 本地目录模式需确认权重存在，避免切到一个空目录或缺失目录
-    path = entry["path"]
-    if os.path.isdir(path):
-        if not any(
-            os.path.isfile(os.path.join(path, name))
-            for name in ("model.safetensors", "pytorch_model.bin")
-        ):
-            raise HTTPException(400, f"模型 {model_id} 权重缺失: {path}（请先放置 model.safetensors）")
-    elif not _is_hf_id(path):
-        # 本地目录路径但目录不存在（既非目录也非 HF id）→ 权重未就位
-        raise HTTPException(400, f"模型 {model_id} 本地权重目录不存在: {path}")
-
-    async with _detector_lock:
-        detector.switch_model(model_path=path, layers=entry["default_layers"])
-        request.app.state.is_trained = False
-        request.app.state.train_info = {}
-
-    return {
-        "success": True,
-        "model_id": model_id,
-        "model_name": entry["name"],
-        "model_path": detector.model_path,
-        "model_kind": detector.model_kind,
-        "message": f"已切换至 {entry['name']}，请重新构建记忆库",
-    }
-
-
 @business_router.get("/status", summary="Service Status")
 async def status(request: Request):
     """查看当前检测器状态和记忆库信息。"""
@@ -409,7 +325,6 @@ async def status(request: Request):
         return {
             "is_trained": False,
             "model_path": "N/A",
-            "model_kind": "N/A",
             "device": "N/A",
             "image_res": 0,
             "similarity_aggregation": "N/A",
@@ -422,7 +337,6 @@ async def status(request: Request):
         "is_trained": request.app.state.is_trained,
         "model_loaded": bool(getattr(detector, "is_loaded", False)),
         "model_path": detector.model_path,
-        "model_kind": detector.model_kind,
         "device": detector.device,
         "image_res": detector.image_res,
         "similarity_aggregation": detector.similarity_aggregation,

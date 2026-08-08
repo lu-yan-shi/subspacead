@@ -258,28 +258,6 @@ class SubspaceAnomalyDetector:
         # HF model id 模式下由加载器负责下载，视为就绪
         return True
 
-    @property
-    def model_kind(self) -> str:
-        """骨干模型类型: dinov3 / dinov2（供前端标注）。"""
-        return "dinov3" if "dinov3" in self.model_path.lower() else "dinov2"
-
-    def switch_model(self, model_path: str, layers=None):
-        """切换骨干模型（DINOv2/DINOv3）。
-
-        DINOv2/DINOv3 特征不兼容，切换后旧记忆库（prompt_features）必然作废，
-        需重新 train 构建。模型为惰性加载，下次 train 时按新路径重建。
-        """
-        if model_path == self.model_path and self.model is not None:
-            return  # 已是目标模型且已加载，无需切换
-        logger.info("切换骨干模型: %s -> %s", self.model_path, model_path)
-        self.model_path = model_path
-        if layers is not None:
-            self.layers = tuple(int(x) for x in str(layers).split(",") if x.strip())
-        self.model = None
-        self.pipeline = None
-        self.prompt_features = None
-        self.is_trained = False
-
     # ============================================================
     # Lazy Model Loading
     # ============================================================

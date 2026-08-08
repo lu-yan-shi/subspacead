@@ -27,18 +27,14 @@ docker-compose -f docker-compose.yml --profile cpu up -d
 代码已内置 DINOv3 支持（detector 检测到 `MODEL_PATH` 含 `dinov3` 即自动切换）。但有两个前置条件：
 
 1. **权重授权（gated）**：`facebook/dinov3-vitb16-pretrain-lvd1689m` 等 checkpoint 需先在 Hugging Face 申请访问并接受 Meta 许可协议（审批可能数天）。
-2. **中国区无法自动下载**：Meta 屏蔽了大陆地区的下载，`hf-mirror.com` 也不会同步 gated 权重。因此**不能**把 `MODEL_PATH` 设为 HF id —— 需在可访问的机器上（或 VPN）下载后，把 `model.safetensors` + `config.json` 放进本地 `dinov3-vitb16-pretrain-lvd1689m/` 目录。
+2. **中国区无法自动下载**：Meta 屏蔽了大陆地区的下载，`hf-mirror.com` 也不会同步 gated 权重。因此**不能**把 `MODEL_PATH` 设为 HF id —— 需在可访问的机器上（或 VPN）下载后，把 `model.safetensors` + `config.json` 放进容器 volume 对应目录。
 
-**两种切换方式**：
+部署方式：把 DINOv3 权重放到 `/app/weights/dinov3-b16`（或 `-s16` / `-l16`），然后用 `DINOV3_VARIANT` 开关切换：
 
-- **部署级预选**（`DINOV3_VARIANT` 开关，需重启容器）：
-  ```bash
-  DINOV3_VARIANT=dinov3-b16 docker-compose --profile gpu up -d
-  # ViT-L(24 层) 建议同时调整特征层: SUBSPACE_LAYERS=18,21,24 DINOV3_VARIANT=dinov3-l16 ...
-  ```
-- **运行时热切**（前端下拉框 / `POST /api/model/switch`，无需重启）：顶部状态栏「模型」下拉框可随时切换 DINOv2 ↔ DINOv3，切换后记忆库作废需重新构建。可用的模型列表来自 `GET /api/models`。
-
-Docker 部署时，`docker-compose.yml` 已把宿主机 `./dinov3-vitb16-pretrain-lvd1689m/` 以只读 bind mount 挂到容器 `/app/weights/dinov3-vitb16-pretrain-lvd1689m`。若权重缺失，前端下拉框对应选项会显示「权重缺失」并禁用。
+```bash
+DINOV3_VARIANT=dinov3-b16 docker-compose --profile gpu up -d
+# ViT-L(24 层) 建议同时调整特征层: SUBSPACE_LAYERS=18,21,24 DINOV3_VARIANT=dinov3-l16 ...
+```
 
 > 注意：容器内 transformers ≥4.55 才支持 DINOv3；版本不足时 detector 会**静默回退到 DINOv2**（启动日志可见警告）。
 
@@ -67,8 +63,6 @@ python api.py
 | POST | `/api/detect` | 对待测图像进行异常检测 |
 | POST | `/api/reset` | 重置检测器状态 |
 | GET | `/api/status` | 查看训练状态和模型信息 |
-| GET | `/api/models` | 列出可用骨干模型（DINOv2/DINOv3）及当前激活模型 |
-| POST | `/api/model/switch` | 运行时切换骨干模型（切换后需重新构建记忆库） |
 
 #### `POST /api/train`
 
@@ -147,7 +141,6 @@ python api.py
 | `MESQUARE_URL` | `http://localhost:8000` | MeSquare 平台地址 |
 | `BUSINESS_PREFIX` | `/api` | 业务端点前缀 |
 | `MODEL_PATH` | `facebook/dinov2-with-registers-base` | DINOv2 模型（HF id 或本地目录） |
-| `DINOV3_MODEL_PATH` | `dinov3-vitb16-pretrain-lvd1689m` | DINOv3 本地权重目录（注册表 dinov3-b16 指向） |
 | `DEFAULT_IMAGE_RES` | `448` | 默认输入分辨率 |
 | `SUBSPACE_SIMILARITY_AGGREGATION` | `max` | 相似度聚合：max / top1_mean / knn_weighted |
 | `SUBSPACE_LAYER_FUSION` | `score_avg` | 多层融合方法 |

@@ -40,12 +40,6 @@ body {
 .topbar .metric .dot.on { background: var(--green); box-shadow: 0 0 5px rgba(40,184,80,0.5); }
 .topbar .metric .dot.off { background: var(--orange); box-shadow: 0 0 5px rgba(240,136,32,0.3); }
 .topbar .push { margin-left: auto; }
-.topbar select#modelSel {
-  padding: 1px 4px; font-size: 10px; border: 1px solid var(--border);
-  background: var(--surface3); color: var(--text); font-family: var(--mono);
-  border-radius: 2px; outline: none; cursor: pointer; max-width: 180px;
-}
-.topbar select#modelSel:focus { border-color: var(--cyan); box-shadow: 0 0 0 1px var(--cyan-dim); }
 
 /* App shell: sidebar + main */
 .app-shell { flex: 1; display: flex; overflow: hidden; min-height: 0; }
@@ -411,7 +405,7 @@ select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 1px var
   <div class="sep"></div>
   <div class="metric"><span class="dot on" id="topDot"></span> <span id="topStatus">初始化</span></div>
   <div class="sep"></div>
-  <div class="metric">模型 <select id="modelSel" title="切换骨干模型（切换后需重新构建记忆库）"><option value="">--</option></select></div>
+  <div class="metric">模型 <b id="topModel">--</b></div>
   <div class="sep"></div>
   <div class="metric">设备 <b id="topDevice">--</b></div>
   <div class="sep"></div>
@@ -737,53 +731,15 @@ async function checkStatus() {
     $id('topDot').className = 'dot ' + (t ? 'on' : 'off');
     $id('topStatus').textContent = t ? '就绪' : '未构建';
     $id('topMem').textContent = t ? (d.train_info && d.train_info.num_patches || '--') : '--';
+    $id('sysModel').textContent = $id('topModel').textContent = (d.model_path || '').split('/').pop();
     $id('sysDevice').textContent = $id('topDevice').textContent = (d.device || '').toUpperCase();
     $id('topRes').textContent = d.image_res || '--';
     // Update detect button if on inspect page
     var db = $id('detectBtn'); if (db) db.disabled = !(t && ($id('detectFile') && $id('detectFile').files.length > 0));
-    loadModelSelect(); // 填充/同步顶部模型下拉框
     return d;
   } catch (e) { return null; }
 }
 async function checkSilent() { try { var r = await fetch(BASE + '/api/status'); return await r.json(); } catch (e) { return null; } }
-
-// ── Model Selector (DINOv2 / DINOv3 switch) ──
-var _modelSelReady = false;
-async function loadModelSelect() {
-  try {
-    var r = await fetch(BASE + '/api/models'); var d = await r.json();
-    var sel = $id('modelSel');
-    if (!_modelSelReady) {
-      sel.innerHTML = d.models.map(function (m) {
-        var label = m.name + (m.available ? '' : '（权重缺失）');
-        return '<option value="' + m.id + '"' + (m.available ? '' : ' disabled') + '>' + label + '</option>';
-      }).join('');
-      _modelSelReady = true;
-      sel.addEventListener('change', onModelSwitch);
-    }
-    // 同步选中当前模型
-    var cur = null;
-    for (var i = 0; i < d.models.length; i++) if (d.models[i].path === d.current) { cur = d.models[i].id; break; }
-    sel.value = cur || '';
-    $id('sysModel').textContent = cur || (d.current || '--').split('/').pop();
-  } catch (e) { }
-}
-async function onModelSwitch() {
-  var sel = $id('modelSel'); var id = sel.value; if (!id) return;
-  sel.disabled = true;
-  try {
-    var fd = new FormData(); fd.append('model_id', id);
-    var r = await fetch(BASE + '/api/model/switch', { method: 'POST', body: fd });
-    var d = await r.json();
-    if (!r.ok) { toast(d.detail || '切换失败', 'err'); await loadModelSelect(); return; }
-    toast(d.message || '已切换模型', 'warn');
-    // 切换后记忆库作废，自动重置工作流回步骤一
-    _wf.step = 1; _wf.stepDone = {}; _wf.trainResult = null; _wf.calThreshold = null;
-    await checkStatus();
-    if (typeof renderWorkflow === 'function') renderWorkflow();
-  } catch (e) { toast('切换失败: ' + e.message, 'err'); await loadModelSelect(); }
-  finally { sel.disabled = false; }
-}
 
 // ── Drag & Drop ──
 function dd(zoneId, inputId, onChg) {

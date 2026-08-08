@@ -62,7 +62,6 @@ print(f'Score: {score:.4f}')
 | `MESQUARE_URL` | `http://localhost:8000` | MeSquare 平台地址 |
 | `BUSINESS_PREFIX` | `/api` | 业务端点前缀 |
 | `MODEL_PATH` | `facebook/dinov2-with-registers-base` | DINOv2 模型（HF id 或本地目录） |
-| `DINOV3_MODEL_PATH` | `dinov3-vitb16-pretrain-lvd1689m` | DINOv3 本地权重目录（注册表 dinov3-b16 指向） |
 | `DINOV3_VARIANT` | `dinov2` | 模型变体开关（compose 层）：dinov2 / dinov3-b16 / dinov3-s16 / dinov3-l16 |
 | `DEFAULT_IMAGE_RES` | `448` | 默认输入分辨率 |
 | `SUBSPACE_SIMILARITY_AGGREGATION` | `max` | 相似度聚合: max / top1_mean / knn_weighted |
