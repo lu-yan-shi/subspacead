@@ -213,6 +213,19 @@ select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px var
 .drop-z.has .drop-z-text { color: var(--green); }
 .file-n { font-size: 12px; color: var(--green); margin-top: 4px; font-family: var(--mono); }
 
+/* 批量选图：缩略图网格 */
+.batch-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; margin-top: 10px; max-height: 220px; overflow-y: auto; }
+.batch-empty { grid-column: 1 / -1; font-size: 12px; color: var(--text3); text-align: center; padding: 14px 0; }
+.batch-cell { position: relative; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; background: var(--surface2); }
+.batch-thumb { width: 100%; height: 68px; object-fit: cover; display: block; }
+.batch-cell-meta { padding: 4px 6px; }
+.batch-name { font-size: 10px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.batch-size { font-size: 10px; color: var(--text3); margin-top: 1px; }
+.batch-del { position: absolute; top: 3px; right: 3px; width: 18px; height: 18px; line-height: 16px; text-align: center; border: none; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; cursor: pointer; font-size: 13px; padding: 0; }
+.batch-del:hover { background: var(--red); }
+.batch-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.batch-meta { font-size: 11px; color: var(--text3); margin-left: auto; font-family: var(--mono); }
+
 /* Camera view */
 .cam-view {
   position: relative; flex: 1; background: var(--bg);
@@ -646,10 +659,15 @@ select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px var
           </div>
           <!-- 批量处理 -->
           <div id="detectPaneBatch" style="display:none;">
-            <div class="tip">上传多张图像进行批量异常检测，点击「开始检测」后运行。</div>
-            <div class="drop-z" id="batchDropZone"><div class="drop-z-text">拖放多张图像</div><div class="drop-z-hint">PNG / JPG / BMP</div><input type="file" id="batchFiles" multiple accept="image/png,image/jpeg,image/jpg,image/bmp,image/tiff"></div>
-            <div id="batchFileList" class="file-n"></div>
-            <button class="btn btn-p" id="batchStartBtn" disabled style="width:100%;">开始检测</button>
+            <div class="tip">可多次添加图片，自动累计到下方列表；支持单张移除或一键清空。</div>
+            <div class="drop-z" id="batchDropZone"><div class="drop-z-text">拖放或点击添加图像</div><div class="drop-z-hint">PNG / JPG / BMP · 可多次选择累加</div><input type="file" id="batchFiles" multiple accept="image/png,image/jpeg,image/jpg,image/bmp,image/tiff"></div>
+            <div id="batchFileList" class="batch-grid"></div>
+            <div class="batch-actions">
+              <button class="btn" id="batchAddBtn">添加图片</button>
+              <button class="btn" id="batchClearBtn" disabled>清空</button>
+              <span id="batchMeta" class="batch-meta"></span>
+            </div>
+            <button class="btn btn-p" id="batchStartBtn" disabled style="width:100%;margin-top:8px;">开始检测</button>
             <div id="batchError" class="err-msg"></div>
             <div style="margin-top:10px;">
               <div class="prog-bar" style="display:none;" id="batchProgBar"><div class="fill" id="batchFill"></div></div>
@@ -1234,32 +1252,74 @@ function exportRpt(d) {
 // ============================================================
 // BATCH PAGE
 // ============================================================
+var _batch = { files: [], urls: [] };  // 累计选中的图片（可多次追加）
+
+function batchFmtSize(b) {
+  return b > 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
+}
+
+function renderBatchList() {
+  var list = $id('batchFileList');
+  if (!list) return;
+  if (!_batch.files.length) {
+    list.innerHTML = '<div class="batch-empty">尚未选择图片，可拖放或点击「添加图片」</div>';
+  } else {
+    list.innerHTML = _batch.files.map(function (f, i) {
+      return '<div class="batch-cell">' +
+        '<img class="batch-thumb" src="' + _batch.urls[i] + '" alt="">' +
+        '<div class="batch-cell-meta"><div class="batch-name" title="' + f.name + '">' + f.name + '</div>' +
+        '<div class="batch-size">' + batchFmtSize(f.size) + '</div></div>' +
+        '<button class="batch-del" data-i="' + i + '" title="移除">×</button></div>';
+    }).join('');
+  }
+  var total = _batch.files.reduce(function (s, f) { return s + f.size; }, 0);
+  $id('batchMeta').textContent = _batch.files.length ? ('共 ' + _batch.files.length + ' 张 / ' + batchFmtSize(total)) : '';
+  $id('batchClearBtn').disabled = !_batch.files.length;
+  $id('batchStartBtn').disabled = !_batch.files.length;
+  $id('batchDropZone').classList.toggle('has', _batch.files.length > 0);
+}
+
+function addBatchFiles(files) {
+  if (!files || !files.length) return;
+  Array.prototype.forEach.call(files, function (f) {
+    if (f.type && f.type.indexOf('image/') !== 0) return;  // 只收图片
+    _batch.files.push(f);
+    _batch.urls.push(URL.createObjectURL(f));
+  });
+  renderBatchList();
+}
+
 function initBatch() {
-  $id('batchDropZone').classList.remove('has');
-  $id('batchDropZone').querySelector('.drop-z-text').textContent = '拖放多张图像';
-  $id('batchFileList').textContent = '';
-  $id('batchStartBtn').disabled = true;
+  $id('batchDropZone').querySelector('.drop-z-text').textContent = '拖放或点击添加图像';
   $id('batchProgBar').style.display = 'none'; $id('batchProgText').style.display = 'none';
   $id('batchSummary').textContent = '';
   $id('batchResultTbl').querySelector('tbody').innerHTML = '<tr><td colspan="5" style="color:var(--text3);text-align:center;">等待上传</td></tr>';
+  renderBatchList();
 }
 
-// 拖放/选择仅暂存文件，点「开始检测」才运行
+// 拖放/选择仅累计暂存文件，点「开始检测」才运行
 dd('batchDropZone', 'batchFiles', function () {
-  var files = $id('batchFiles').files;
-  $id('batchStartBtn').disabled = !files.length;
-  if (files.length) {
-    $id('batchDropZone').classList.add('has');
-    var names = Array.prototype.slice.call(files, 0, 5).map(function (f) { return f.name; }).join('、');
-    $id('batchFileList').textContent = '已选择 ' + files.length + ' 张：' + names + (files.length > 5 ? ' …' : '');
-  } else {
-    $id('batchDropZone').classList.remove('has');
-    $id('batchFileList').textContent = '';
-  }
+  addBatchFiles($id('batchFiles').files);
+  $id('batchFiles').value = '';
+});
+
+$id('batchAddBtn').addEventListener('click', function () { $id('batchFiles').click(); });
+$id('batchClearBtn').addEventListener('click', function () {
+  _batch.urls.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
+  _batch.files = []; _batch.urls = [];
+  renderBatchList();
+});
+$id('batchFileList').addEventListener('click', function (e) {
+  var b = e.target.closest('.batch-del');
+  if (!b) return;
+  var i = +b.dataset.i;
+  try { URL.revokeObjectURL(_batch.urls[i]); } catch (e) {}
+  _batch.files.splice(i, 1); _batch.urls.splice(i, 1);
+  renderBatchList();
 });
 
 $id('batchStartBtn').addEventListener('click', async function () {
-  var files = $id('batchFiles').files;
+  var files = _batch.files;
   if (!files.length) { showE('batchError', '请先选择图像'); return; }
   var st = await checkSilent(); if (!st || !st.is_trained) { toast('请先构建记忆库', 'err'); return; }
   var btn = $id('batchStartBtn'); btn.disabled = true; btn.textContent = '检测中…';

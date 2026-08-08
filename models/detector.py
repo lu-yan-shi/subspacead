@@ -66,6 +66,55 @@ DEFAULT_MODEL_PATH = os.environ.get(
     "facebook/dinov2-with-registers-base",
 )
 
+# ============================================================
+# 图片尺寸适配：保比例缩放 + 灰边填充（letterbox）
+# 适配任意尺寸/长宽比的输入图片，避免非方形图被直接拉伸变形
+# ============================================================
+LETTERBOX_FILL = 128  # 灰边填充色
+
+
+def _letterbox(img: Image.Image, res: int, fill: int = LETTERBOX_FILL) -> Tuple[Image.Image, Dict]:
+    """保比例缩放到 res×res 方形画布，短边居中后用中性灰补齐。
+
+    Returns:
+        (画布, geom)。geom 记录内容区几何信息，用于后续裁边/换算坐标：
+        scale=缩放比例, ox/oy=内容区左上角, cw/ch=内容区宽高,
+        orig_w/orig_h=原始尺寸, res=画布边长。
+    """
+    ow, oh = img.size
+    scale = min(res / ow, res / oh)
+    nw, nh = max(1, int(round(ow * scale))), max(1, int(round(oh * scale)))
+    resized = img.resize((nw, nh), Image.Resampling.BICUBIC)
+    canvas = Image.new("RGB", (res, res), (fill, fill, fill))
+    ox, oy = (res - nw) // 2, (res - nh) // 2
+    canvas.paste(resized, (ox, oy))
+    return canvas, {
+        "scale": scale, "ox": ox, "oy": oy, "cw": nw, "ch": nh,
+        "orig_w": ow, "orig_h": oh, "res": res,
+    }
+
+
+def _crop_content(map2d: np.ndarray, geom: Dict) -> np.ndarray:
+    """裁掉画布尺寸 2D 图（异常图/注意力图）上的灰边，只保留内容区。
+
+    map2d 不一定是 res×res（可能处于 patch 低分辨率），按画布坐标等比换算。
+    """
+    h, w = map2d.shape[:2]
+    sx, sy = w / float(geom["res"]), h / float(geom["res"])
+    x0, y0 = int(round(geom["ox"] * sx)), int(round(geom["oy"] * sy))
+    cw, ch = max(1, int(round(geom["cw"] * sx))), max(1, int(round(geom["ch"] * sy)))
+    return map2d[y0:y0 + ch, x0:x0 + cw]
+
+
+def _content_to_original(map2d: np.ndarray, geom: Dict) -> np.ndarray:
+    """把画布尺寸的 2D 图裁掉灰边，并缩放回原始图片尺寸。"""
+    cropped = _crop_content(map2d, geom)
+    return cv2.resize(
+        cropped.astype(np.float32),
+        (int(geom["orig_w"]), int(geom["orig_h"])),
+        interpolation=cv2.INTER_LINEAR,
+    )
+
 
 class SubspaceAnomalyDetector:
     """
@@ -364,8 +413,11 @@ class SubspaceAnomalyDetector:
         else:
             imgs = template_images
 
+        # 尺寸适配：保比例缩放 + 灰边填充为方形画布，适配任意长宽比图片
+        imgs = [_letterbox(i, self.image_res)[0] for i in imgs]
+
         if verbose:
-            logger.info("Loaded %d template images", len(imgs))
+            logger.info("Loaded %d template images (letterboxed to %d)", len(imgs), self.image_res)
 
         # Build prompt features
         t0 = __import__("time").time()
@@ -496,19 +548,23 @@ class SubspaceAnomalyDetector:
         for i, test_img in enumerate(imgs):
             test_name = img_names[i]
             localization_info = None
-            img_w, img_h = test_img.size
+            img_w, img_h = test_img.size  # 原始尺寸（用于输出对齐）
 
-            # ── Step 1: Run SubspaceAD inference ──
+            # 尺寸适配：保比例缩放 + 灰边填充为方形画布（非方形图不再拉伸变形）
+            canvas, geom = _letterbox(test_img, self.image_res)
+            canvas_w, canvas_h = canvas.size
+
+            # ── Step 1: Run SubspaceAD inference (on letterboxed canvas) ──
             try:
                 with torch.no_grad():
                     output: PatchEADOutput = self.pipeline(
                         prompt_images=self.prompt_features,
-                        test_images=[test_img],
+                        test_images=[canvas],
                         is_prompt_features=True,
                         resolution=self.image_res,
                         return_attentioned_anomaly_map=False,
                         upsample_anomaly_map=True,
-                        upsample_resolution=(img_w, img_h),
+                        upsample_resolution=(canvas_w, canvas_h),
                         output_feature_maps_indices=self.layers,
                         layer_fusion_method=self.layer_fusion,
                         anomaly_score_method="top1",
@@ -534,12 +590,18 @@ class SubspaceAnomalyDetector:
             # ── Step 2: Object localization using SubspaceAD attention map ──
             if do_localize and loc_method != "none" and attention_map is not None:
                 loc_result = self._localizer.localize(
-                    test_img,
+                    canvas,
                     saliency_map=attention_map,
                     method=loc_method,
                 )
+                # bbox 从画布坐标换算回原始图片坐标（灰边偏移 + 缩放）
                 localization_info = {
-                    "bbox": list(loc_result.bbox),
+                    "bbox": [
+                        round((loc_result.bbox[0] - geom["ox"]) / geom["scale"], 2),
+                        round((loc_result.bbox[1] - geom["oy"]) / geom["scale"], 2),
+                        round(loc_result.bbox[2] / geom["scale"], 2),
+                        round(loc_result.bbox[3] / geom["scale"], 2),
+                    ],
                     "confidence": round(loc_result.confidence, 4),
                     "method": loc_result.method,
                 }
@@ -548,9 +610,9 @@ class SubspaceAnomalyDetector:
                 if do_crop and loc_result.is_valid and loc_result.method not in (
                     "none", "saliency_fallback", "contour_fallback",
                 ):
-                    roi_img, roi_bbox = crop_to_roi(test_img, loc_result.bbox, margin=loc_margin)
-                    square_bbox = expand_bbox_square(roi_bbox, test_img.size)
-                    roi_square = test_img.crop((
+                    roi_img, roi_bbox = crop_to_roi(canvas, loc_result.bbox, margin=loc_margin)
+                    square_bbox = expand_bbox_square(roi_bbox, canvas.size)
+                    roi_square = canvas.crop((
                         square_bbox[0], square_bbox[1],
                         square_bbox[0] + square_bbox[2], square_bbox[1] + square_bbox[3],
                     ))
@@ -573,15 +635,19 @@ class SubspaceAnomalyDetector:
 
                     roi_anomaly_map = roi_output.anomaly_map.squeeze().numpy()
                     anomaly_map_full = map_anomaly_to_original(
-                        roi_anomaly_map, square_bbox, (img_h, img_w),
+                        roi_anomaly_map, square_bbox, (canvas_h, canvas_w),
                     )
                     anomaly_map_full = cv2.resize(
                         anomaly_map_full.astype(np.float32),
-                        (img_w, img_h),
+                        (canvas_w, canvas_h),
                         interpolation=cv2.INTER_LINEAR,
                     )
 
             # ── Post-processing ──
+            # 裁掉灰边、缩放回原始图片尺寸（分数只在内容区计算，避免灰边干扰）
+            anomaly_map_full = _content_to_original(anomaly_map_full, geom)
+            if attention_map is not None:
+                attention_map = _content_to_original(attention_map, geom)
             anomaly_map_normalized = min_max_norm(anomaly_map_full)
 
             flat_scores = anomaly_map_normalized.flatten()

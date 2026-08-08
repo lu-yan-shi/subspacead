@@ -39,6 +39,7 @@ print(f'Score: {score:.4f}')
 - `app/api/routes.py` — 业务端点（`/api/train`、`/api/detect`、`/api/reset`、`/api/status`）
 - `app/utils/webhook.py` — MeSquare webhook 通知器
 - `models/detector.py` — SubspaceAnomalyDetector 封装类（调用 DuoAD 管线 + 定位/Graph 双检）
+  - 尺寸适配：任意长宽比图片经 **letterbox**（保比例缩放 + 灰边填充）进入 `image_res` 方形画布，避免拉伸变形；异常图/注意力图裁边后缩回原图尺寸，分数只在内容区计算
 - `models/subspacead/` — 定位（localization）与可视化工具；核心算法在 vendored 的 ad_pipelines 包内
 - `vendor/ad-pipelines/` — vendored DuoAD (ad_pipelines) 源码，Docker 构建时 `pip install`（含 coreset/knn_weighted 改动）
 - `weights/` — 可选本地权重目录（默认走 HF 在线 `facebook/dinov2-with-registers-base`）
