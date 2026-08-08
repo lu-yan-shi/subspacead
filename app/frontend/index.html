@@ -85,22 +85,42 @@ body {
 .sidebar {
   width: 210px; background: var(--bg2); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; flex-shrink: 0; padding: 12px 0;
+  transition: width 0.2s ease;
 }
 .sidebar .nav-group { padding: 0 10px; }
 .sidebar .nav-label {
   font-size: 11px; font-weight: 600; text-transform: uppercase;
   letter-spacing: 1px; color: var(--text3); padding: 12px 8px 8px;
+  white-space: nowrap; overflow: hidden;
 }
 .sidebar .nav-item {
   display: flex; align-items: center; gap: 10px; padding: 9px 12px; margin-bottom: 3px;
   font-size: 14px; color: var(--text2); cursor: pointer; border: 1px solid transparent;
   transition: all 0.18s ease; font-family: var(--font); text-decoration: none;
-  border-radius: 6px;
+  border-radius: 6px; white-space: nowrap;
 }
 .sidebar .nav-item:hover { color: var(--text); background: var(--surface2); border-color: var(--border); }
 .sidebar .nav-item.active { color: var(--cyan); background: var(--cyan-dim); border-color: var(--cyan-dim); font-weight: 600; }
-.sidebar .nav-item .nav-icon { font-size: 15px; width: 22px; text-align: center; opacity: 0.75; }
+.sidebar .nav-item .nav-icon { font-size: 15px; width: 22px; text-align: center; opacity: 0.75; flex-shrink: 0; }
 .sidebar .nav-item.active .nav-icon { opacity: 1; }
+
+/* Sidebar collapse toggle */
+.sidebar-toggle {
+  display: flex; align-items: center; gap: 10px; margin: 0 10px 6px; padding: 9px 12px;
+  font-size: 14px; color: var(--text2); cursor: pointer; border: 1px solid transparent;
+  border-radius: 6px; transition: all 0.18s ease; user-select: none; white-space: nowrap;
+}
+.sidebar-toggle:hover { color: var(--text); background: var(--surface2); border-color: var(--border); }
+.sidebar-toggle .st-icon { font-size: 13px; width: 22px; text-align: center; flex-shrink: 0; }
+
+/* Collapsed: icon rail */
+.sidebar.collapsed { width: 52px; }
+.sidebar.collapsed .sidebar-toggle { justify-content: center; margin: 0 6px 6px; padding: 9px 0; }
+.sidebar.collapsed .nav-group { padding: 0 6px; }
+.sidebar.collapsed .nav-item { justify-content: center; padding: 9px 0; gap: 0; }
+.sidebar.collapsed .nav-label,
+.sidebar.collapsed .nav-txt,
+.sidebar.collapsed .st-txt { display: none; }
 
 /* Main content area */
 .main-area { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
@@ -409,6 +429,7 @@ select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px var
 /* Responsive */
 @media (max-width: 900px) {
   .sidebar { width: 160px; }
+  .sidebar.collapsed { width: 52px; }
   .page-2col { grid-template-columns: 1fr; grid-template-rows: auto 1fr; }
   .wf-content { flex-direction: column; }
   .wf-left { width: 100%; }
@@ -451,13 +472,17 @@ select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px var
 
   <!-- ===== SIDEBAR ===== -->
   <div class="sidebar" id="sidebar">
+    <div class="sidebar-toggle" id="sidebarToggle" title="收起菜单">
+      <span class="st-icon">«</span>
+      <span class="st-txt">收起</span>
+    </div>
     <div class="nav-group">
       <div class="nav-label">主菜单</div>
-      <a class="nav-item active" data-page="workflow" href="#workflow"><span class="nav-icon">◈</span> 总览</a>
-      <a class="nav-item" data-page="guide" href="#guide"><span class="nav-icon">◎</span> 模型训练</a>
-      <a class="nav-item" data-page="detect" href="#detect"><span class="nav-icon">◉</span> 缺陷检测</a>
-      <a class="nav-item" data-page="live" href="#live"><span class="nav-icon">▶</span> 实时检测</a>
-      <a class="nav-item" data-page="analytics" href="#analytics"><span class="nav-icon">▤</span> 统计分析</a>
+      <a class="nav-item active" data-page="workflow" href="#workflow"><span class="nav-icon">◈</span><span class="nav-txt">总览</span></a>
+      <a class="nav-item" data-page="guide" href="#guide"><span class="nav-icon">◎</span><span class="nav-txt">模型训练</span></a>
+      <a class="nav-item" data-page="detect" href="#detect"><span class="nav-icon">◉</span><span class="nav-txt">缺陷检测</span></a>
+      <a class="nav-item" data-page="live" href="#live"><span class="nav-icon">▶</span><span class="nav-txt">实时检测</span></a>
+      <a class="nav-item" data-page="analytics" href="#analytics"><span class="nav-icon">▤</span><span class="nav-txt">统计分析</span></a>
     </div>
   </div>
 
@@ -843,6 +868,29 @@ function navigate(page) {
 document.querySelectorAll('.sidebar .nav-item').forEach(function (n) {
   n.addEventListener('click', function (e) { e.preventDefault(); navigate(this.dataset.page); });
 });
+
+// Sidebar collapse / expand
+var SIDEBAR_KEY = 'subspacead-sidebar-collapsed';
+function updateSidebarToggle() {
+  var sb = $id('sidebar'), t = $id('sidebarToggle');
+  if (!sb || !t) return;
+  var c = sb.classList.contains('collapsed');
+  t.title = c ? '展开菜单' : '收起菜单';
+  var ic = t.querySelector('.st-icon'), tx = t.querySelector('.st-txt');
+  if (ic) ic.textContent = c ? '»' : '«';
+  if (tx) tx.textContent = c ? '展开' : '收起';
+}
+function toggleSidebar() {
+  var sb = $id('sidebar');
+  var c = sb.classList.toggle('collapsed');
+  try { if (c) localStorage.setItem(SIDEBAR_KEY, '1'); else localStorage.removeItem(SIDEBAR_KEY); } catch (e) {}
+  updateSidebarToggle();
+}
+$id('sidebarToggle').addEventListener('click', toggleSidebar);
+(function initSidebar() {
+  try { if (localStorage.getItem(SIDEBAR_KEY) === '1') $id('sidebar').classList.add('collapsed'); } catch (e) {}
+  updateSidebarToggle();
+})();
 
 // Hash-based init
 function hashToPage() { var h = window.location.hash.replace('#', ''); if (h && document.getElementById('page-' + h)) navigate(h); else navigate('workflow'); }
