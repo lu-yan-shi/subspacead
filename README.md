@@ -22,6 +22,22 @@ docker-compose -f docker-compose.yml --profile cpu up -d
 
 打开 http://localhost:8704 — 状态栏显示当前运行设备（GPU/CPU）。
 
+### 使用 DINOv3（可选）
+
+代码已内置 DINOv3 支持（detector 检测到 `MODEL_PATH` 含 `dinov3` 即自动切换）。但有两个前置条件：
+
+1. **权重授权（gated）**：`facebook/dinov3-vitb16-pretrain-lvd1689m` 等 checkpoint 需先在 Hugging Face 申请访问并接受 Meta 许可协议（审批可能数天）。
+2. **中国区无法自动下载**：Meta 屏蔽了大陆地区的下载，`hf-mirror.com` 也不会同步 gated 权重。因此**不能**把 `MODEL_PATH` 设为 HF id —— 需在可访问的机器上（或 VPN）下载后，把 `model.safetensors` + `config.json` 放进容器 volume 对应目录。
+
+部署方式：把 DINOv3 权重放到 `/app/weights/dinov3-b16`（或 `-s16` / `-l16`），然后用 `DINOV3_VARIANT` 开关切换：
+
+```bash
+DINOV3_VARIANT=dinov3-b16 docker-compose --profile gpu up -d
+# ViT-L(24 层) 建议同时调整特征层: SUBSPACE_LAYERS=18,21,24 DINOV3_VARIANT=dinov3-l16 ...
+```
+
+> 注意：容器内 transformers ≥4.55 才支持 DINOv3；版本不足时 detector 会**静默回退到 DINOv2**（启动日志可见警告）。
+
 ### 本地运行
 
 ```bash

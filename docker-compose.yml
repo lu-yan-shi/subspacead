@@ -1,3 +1,13 @@
+# 模型变体开关 —— 启动时通过环境变量或 .env 覆盖, 例:
+#   DINOV3_VARIANT=dinov2           (默认) DINOv2-with-registers-base
+#   DINOV3_VARIANT=dinov3-b16       DINOv3 ViT-B16 (权重放 volume:/app/weights/dinov3-b16)
+#   DINOV3_VARIANT=dinov3-s16       DINOv3 ViT-S16
+#   DINOV3_VARIANT=dinov3-l16       DINOv3 ViT-L16 (24 层, 建议再设 SUBSPACE_LAYERS=18,21,24)
+# DINOv3 权重需预先放入对应目录 (gated 模型, 中国区无法自动下载, 见 README「使用 DINOv3」)。
+x-model-variant: &model-variant
+  MODEL_PATH: /app/weights/${DINOV3_VARIANT:-dinov2}
+  SUBSPACE_LAYERS: ${SUBSPACE_LAYERS:-8,10,12}
+
 services:
   subspacead-gpu:
     profiles: ["gpu"]
@@ -15,8 +25,7 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-    environment:
-      - MODEL_PATH=/app/weights/dinov2
+    environment: *model-variant
     volumes:
       - subspacead_weights:/app/weights
     restart: unless-stopped
@@ -30,8 +39,7 @@ services:
     image: subspacead:cpu
     ports:
       - "8704:8704"
-    environment:
-      - MODEL_PATH=/app/weights/dinov2
+    environment: *model-variant
     volumes:
       - subspacead_weights:/app/weights
     restart: unless-stopped
