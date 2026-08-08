@@ -233,7 +233,7 @@ async def detect(
     anomaly_score = result["anomaly_score"]
     anomaly_map = result["anomaly_map"]
 
-    threshold = getattr(detector, "threshold", 0.3)
+    threshold = getattr(detector, "threshold", 0.1)
     is_anomaly = anomaly_score > threshold
 
     resp = {
@@ -285,6 +285,17 @@ async def detect(
         logger.warning("Visualization generation failed: %s", e)
 
     return resp
+
+
+@business_router.post("/set-threshold", summary="Set Detection Threshold")
+async def set_threshold(request: Request, threshold: float = Form(0.1)):
+    """设置判定阈值（前端阈值标定完成后调用）。"""
+    detector: SubspaceAnomalyDetector = _get_detector(request)
+    if not 0.0 <= threshold <= 1.0:
+        raise HTTPException(400, "阈值需在 [0, 1] 区间")
+    detector.threshold = float(threshold)
+    logger.info("Threshold set to %.4f", detector.threshold)
+    return {"success": True, "threshold": detector.threshold}
 
 
 @business_router.post("/reset", summary="Reset Detector")

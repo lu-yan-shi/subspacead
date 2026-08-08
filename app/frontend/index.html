@@ -946,7 +946,7 @@ function renderDashboard() {
     if (!st) return;
     var trained = st.is_trained;
     var calDone = _wf.stepDone[2];
-    var threshold = _wf.calThreshold || 0.3;
+    var threshold = _wf.calThreshold || 0.1;
 
     // ── Memory card ──
     var memStatus = $id('dashMemoryStatus'), memDetail = $id('dashMemoryDetail');
@@ -1129,7 +1129,11 @@ function renderWorkflowStep() {
         (_wf.stepDone[2] ? '<button class="btn btn-p" id="wfGoDetect">前往缺陷检测 →</button>' : '') +
       '</div>';
     $id('wfBackTo1').addEventListener('click', function () { _wf.step = 1; renderWorkflow(); });
-    $id('wfSkipCal').addEventListener('click', function () { _wf.stepDone[2] = true; _wf.calThreshold = 0.3; toast('已跳过标定，使用默认阈值 0.3', 'warn'); navigate('detect'); });
+    $id('wfSkipCal').addEventListener('click', async function () {
+      _wf.stepDone[2] = true; _wf.calThreshold = 0.1;
+      try { var fd = new FormData(); fd.append('threshold', 0.1); await fetch(BASE + '/api/set-threshold', { method: 'POST', body: fd }); } catch (e) { }
+      toast('已跳过标定，使用默认阈值 0.1', 'warn'); navigate('detect');
+    });
     $id('wfCalBtn').addEventListener('click', wfDoCalibrate);
     var go = $id('wfGoDetect'); if (go) go.addEventListener('click', function () { navigate('detect'); });
     // Restore chart if already done
@@ -1177,6 +1181,11 @@ async function wfDoCalibrate() {
   var p99 = scores[Math.floor(scores.length * 0.99)] || scores[scores.length - 1];
   var thr = Math.min(mean + 3 * std, p99 * 1.2);
   _wf.stepDone[2] = true; _wf.calThreshold = thr;
+  // 校准结果写回后端，让 /api/detect 的 is_anomaly 使用该阈值
+  try {
+    var fd2 = new FormData(); fd2.append('threshold', thr);
+    await fetch(BASE + '/api/set-threshold', { method: 'POST', body: fd2 });
+  } catch (e) { }
   // Draw histogram
   var bins = 16, lo = scores[0], hi = scores[scores.length - 1], rng = (hi - lo) || 0.01;
   var bars = [], lbls = [];
@@ -1566,7 +1575,7 @@ async function processLiveVideo(file) {
       var sum = d.summary;
       $id('liveViewStatus').innerHTML = '完成: ' + sum.total_frames_scanned + '帧 | 异常 ' + sum.anomaly_frame_count + '/' + sum.total_frames_scanned + ' | 最高分 ' + sum.max_anomaly_score.toFixed(4);
       $id('liveViewStatus').style.color = sum.anomaly_frame_count > 0 ? 'var(--red)' : 'var(--green)';
-      d.frames.forEach(function (f) { addToHistory({ ts: Date.now(), score: f.anomaly_score, is_anomaly: f.is_anomaly, threshold: 0.3, time_ms: 0 }); });
+      d.frames.forEach(function (f) { addToHistory({ ts: Date.now(), score: f.anomaly_score, is_anomaly: f.is_anomaly, threshold: _wf.calThreshold || 0.1, time_ms: 0 }); });
       refreshRecentTable();
       // Score chart
       var scores = d.frames.map(function (f) { return f.anomaly_score; });
@@ -1617,7 +1626,7 @@ function refreshAnalytics() {
     var w = 600, h = 160, pad = 20;
     var tMin = Math.min.apply(null, trendScores), tMax = Math.max.apply(null, trendScores), tRng = (tMax - tMin) || 0.01;
     var pts = trendScores.map(function (s, i) { return (pad + (i / (trendScores.length - 1)) * (w - pad * 2)) + ',' + (pad + (h - pad * 2) - ((s - tMin) / tRng) * (h - pad * 2)); }).join(' ');
-    var thr = D.history[0].threshold || 0.3;
+    var thr = D.history[0].threshold || 0.1;
     var thrY = pad + (h - pad * 2) - ((thr - tMin) / tRng) * (h - pad * 2);
     $id('trendChart').innerHTML =
       '<div class="line-chart" style="height:160px;"><svg viewBox="0 0 ' + w + ' ' + h + '">' +

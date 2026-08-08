@@ -223,7 +223,9 @@ class SubspaceAnomalyDetector:
         self.pipeline: Optional[DuoADPipeline] = None
         self.prompt_features: Optional[torch.Tensor] = None  # memory bank
         self.is_trained = False
-        self.threshold: float = 0.3
+        # 默认阈值按「原始异常图 top-k 均值」口径标定：自匹配≈0，不同/缺陷图≈0.1+
+        # （旧 0.3 是针对 min-max 归一化分数的，修复评分口径后需同步下调）
+        self.threshold: float = 0.1
 
         # Localization
         self.enable_localization = enable_localization
@@ -648,9 +650,14 @@ class SubspaceAnomalyDetector:
             anomaly_map_full = _content_to_original(anomaly_map_full, geom)
             if attention_map is not None:
                 attention_map = _content_to_original(attention_map, geom)
+
+            # 分数必须在「原始异常图」上计算，不能取 min-max 归一化后的图：
+            # min_max 会强制全局最大值=1.0，把自匹配/正常图的分数也抬到 0.5+，
+            # 使阈值（0.3 等）完全失真——所有图都被判为异常。
+            # 归一化图仅用于热力图显示，评分保持绝对口径。
             anomaly_map_normalized = min_max_norm(anomaly_map_full)
 
-            flat_scores = anomaly_map_normalized.flatten()
+            flat_scores = anomaly_map_full.flatten()
             k = max(1, int(len(flat_scores) * top_k_ratio))
             top_k_mean = np.mean(np.sort(flat_scores)[-k:])
 
