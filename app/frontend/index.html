@@ -85,8 +85,19 @@ body {
 .sidebar {
   width: 210px; background: var(--bg2); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; flex-shrink: 0; padding: 12px 0;
-  transition: width 0.2s ease;
+  position: relative; transition: width 0.2s ease;
 }
+
+/* Floating collapse arrow at right edge of sidebar */
+.sb-arrow {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--text3); cursor: pointer; border: 1px solid transparent;
+  border-radius: 6px; transition: all 0.18s ease; z-index: 3; background: transparent;
+  line-height: 1;
+}
+.sb-arrow:hover { color: var(--cyan); background: var(--surface2); border-color: var(--border); }
+.sidebar.collapsed .sb-arrow { right: 50%; transform: translate(50%, -50%); }
 .sidebar .nav-group { padding: 0 10px; }
 .sidebar .nav-label {
   font-size: 11px; font-weight: 600; text-transform: uppercase;
@@ -476,6 +487,7 @@ select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px var
       <span class="st-icon">«</span>
       <span class="st-txt">收起</span>
     </div>
+    <div class="sb-arrow" id="sbArrow" title="收起菜单">«</div>
     <div class="nav-group">
       <div class="nav-label">主菜单</div>
       <a class="nav-item active" data-page="workflow" href="#workflow"><span class="nav-icon">◈</span><span class="nav-txt">总览</span></a>
@@ -872,13 +884,18 @@ document.querySelectorAll('.sidebar .nav-item').forEach(function (n) {
 // Sidebar collapse / expand
 var SIDEBAR_KEY = 'subspacead-sidebar-collapsed';
 function updateSidebarToggle() {
-  var sb = $id('sidebar'), t = $id('sidebarToggle');
-  if (!sb || !t) return;
-  var c = sb.classList.contains('collapsed');
-  t.title = c ? '展开菜单' : '收起菜单';
-  var ic = t.querySelector('.st-icon'), tx = t.querySelector('.st-txt');
-  if (ic) ic.textContent = c ? '»' : '«';
-  if (tx) tx.textContent = c ? '展开' : '收起';
+  var sb = $id('sidebar'), t = $id('sidebarToggle'), ar = $id('sbArrow');
+  var c = sb && sb.classList.contains('collapsed');
+  if (t) {
+    t.title = c ? '展开菜单' : '收起菜单';
+    var ic = t.querySelector('.st-icon'), tx = t.querySelector('.st-txt');
+    if (ic) ic.textContent = c ? '»' : '«';
+    if (tx) tx.textContent = c ? '展开' : '收起';
+  }
+  if (ar) {
+    ar.title = c ? '展开菜单' : '收起菜单';
+    ar.textContent = c ? '»' : '«';
+  }
 }
 function toggleSidebar() {
   var sb = $id('sidebar');
@@ -887,6 +904,7 @@ function toggleSidebar() {
   updateSidebarToggle();
 }
 $id('sidebarToggle').addEventListener('click', toggleSidebar);
+$id('sbArrow').addEventListener('click', toggleSidebar);
 (function initSidebar() {
   try { if (localStorage.getItem(SIDEBAR_KEY) === '1') $id('sidebar').classList.add('collapsed'); } catch (e) {}
   updateSidebarToggle();
