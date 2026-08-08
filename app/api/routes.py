@@ -189,6 +189,8 @@ async def detect(
     viz_mode: str = Form("overlay", description="可视化模式: overlay / side_by_side / bbox"),
     return_heatmap: bool = Form(True, description="是否返回热力图"),
     bbox_threshold: float = Form(0.5, description="缺陷检测阈值 (仅 bbox 模式)"),
+    threshold: Optional[float] = Form(None,
+        description="异常判定阈值；提供则持久化到检测器并用于本次判定"),
     top_k_ratio: float = Form(0.01, description="图像级分数的 top-k 比例"),
     enable_localization: bool = Form(DEFAULT_LOCALIZE, description="是否启用目标定位"),
     localization_method: str = Form(DEFAULT_LOCALIZATION_METHOD,
@@ -205,6 +207,10 @@ async def detect(
     test_img = _bytes_to_pil(data)
 
     detector: SubspaceAnomalyDetector = _get_detector(request)
+
+    # 前端「判定阈值」输入框每次检测都带上：持久化并用于本次 is_anomaly 判定
+    if threshold is not None:
+        detector.threshold = float(threshold)
 
     t0 = time.time()
     try:
@@ -353,6 +359,7 @@ async def status(request: Request):
         "similarity_aggregation": detector.similarity_aggregation,
         "layer_fusion": detector.layer_fusion,
         "layers": list(detector.layers),
+        "threshold": getattr(detector, "threshold", 0.1),
         "train_info": request.app.state.train_info,
     }
 

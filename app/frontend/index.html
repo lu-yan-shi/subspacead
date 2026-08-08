@@ -645,7 +645,7 @@ select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px var
               <div class="title">参数设置</div>
               <div class="fg-r">
                 <div class="fg"><label>视图</label><select id="vizMode"><option value="overlay" selected>叠加</option><option value="side_by_side">对比</option><option value="bbox">边界框</option></select></div>
-                <div class="fg"><label>阈值</label><input type="number" id="bboxThreshold" value="0.5" min="0" max="1" step="0.05"></div>
+                <div class="fg"><label>判定阈值</label><input type="number" id="bboxThreshold" value="0.1" min="0" max="1" step="0.05"></div>
               </div>
               <div class="toggle-r"><label class="toggle-s"><input type="checkbox" id="enableLocalization" checked><span class="slider"></span></label><label>目标定位 + ROI裁切</label></div>
               <button class="btn btn-p" id="detectBtn" disabled style="width:100%;">执行检测</button>
@@ -850,6 +850,8 @@ async function checkStatus() {
     $id('topModel').textContent = (d.model_path || '').split('/').pop();
     $id('topDevice').textContent = (d.device || '').toUpperCase();
     $id('topRes').textContent = d.image_res || '--';
+    // 同步判定阈值（用户未在编辑输入框时；校准/设置后输入框即时反映）
+    var tb = $id('bboxThreshold'); if (tb && document.activeElement !== tb && typeof d.threshold === 'number') tb.value = d.threshold;
     // Update detect button if on inspect page
     var db = $id('detectBtn'); if (db) db.disabled = !(t && ($id('detectFile') && $id('detectFile').files.length > 0));
     return d;
@@ -1132,6 +1134,7 @@ function renderWorkflowStep() {
     $id('wfSkipCal').addEventListener('click', async function () {
       _wf.stepDone[2] = true; _wf.calThreshold = 0.1;
       try { var fd = new FormData(); fd.append('threshold', 0.1); await fetch(BASE + '/api/set-threshold', { method: 'POST', body: fd }); } catch (e) { }
+      $id('bboxThreshold').value = 0.1;
       toast('已跳过标定，使用默认阈值 0.1', 'warn'); navigate('detect');
     });
     $id('wfCalBtn').addEventListener('click', wfDoCalibrate);
@@ -1171,6 +1174,7 @@ async function wfDoCalibrate() {
   var scores = [];
   for (var i = 0; i < files.length; i++) {
     var fd = new FormData(); fd.append('file', files[i]); fd.append('return_heatmap', 'false'); fd.append('enable_localization', 'false');
+    fd.append('threshold', parseFloat($id('bboxThreshold').value));
     try { var r = await fetch(BASE + '/api/detect', { method: 'POST', body: fd }); scores.push((await r.json()).anomaly_score); } catch (e) { }
   }
   btn.disabled = false; btn.classList.remove('btn-loading'); btn.textContent = '开始标定';
@@ -1186,6 +1190,8 @@ async function wfDoCalibrate() {
     var fd2 = new FormData(); fd2.append('threshold', thr);
     await fetch(BASE + '/api/set-threshold', { method: 'POST', body: fd2 });
   } catch (e) { }
+  // 同步到检测页「判定阈值」输入框，避免下次检测用旧值覆盖校准结果
+  $id('bboxThreshold').value = thr;
   // Draw histogram
   var bins = 16, lo = scores[0], hi = scores[scores.length - 1], rng = (hi - lo) || 0.01;
   var bars = [], lbls = [];
@@ -1252,6 +1258,7 @@ $id('detectBtn').addEventListener('click', async function () {
   var fd = new FormData(); fd.append('file', fi.files[0]);
   fd.append('viz_mode', $id('vizMode').value); fd.append('return_heatmap', 'true');
   fd.append('bbox_threshold', parseFloat($id('bboxThreshold').value));
+  fd.append('threshold', parseFloat($id('bboxThreshold').value));
   fd.append('enable_localization', $id('enableLocalization').checked);
   fd.append('crop_to_roi', $id('enableLocalization').checked);
   fd.append('localization_method', 'auto');
@@ -1264,6 +1271,14 @@ $id('detectBtn').addEventListener('click', async function () {
   finally { btn.disabled = false; btn.classList.remove('btn-loading'); btn.textContent = '执行检测'; }
 });
 
+// 用户直接修改「判定阈值」→ 立即持久化到后端（校准/跳过标定也走同一接口）
+$id('bboxThreshold').addEventListener('change', async function () {
+  var v = parseFloat(this.value);
+  if (isNaN(v) || v < 0 || v > 1) { this.value = 0.1; v = 0.1; }
+  try { await fetch(BASE + '/api/set-threshold', { method: 'POST', body: new URLSearchParams({ threshold: String(v) }) }); }
+  catch (e) { toast('阈值设置失败', 'err'); }
+});
+
 function showInspectResult(d) {
   var s = d.anomaly_score, isA = d.is_anomaly;
   // Fused score takes priority if available
@@ -1274,6 +1289,8 @@ function showInspectResult(d) {
   $id('resultTag').className = 'tag ' + (isA ? 'err' : 'ok');
   $id('resultLabel').textContent = d.fused_score ? '融合分数' : '异常分数';
   $id('resultThr').textContent = d.threshold.toFixed(2);
+  // 判定阈值以服务端返回为准，回写输入框（与 bbox 可视化阈值保持一致）
+  $id('bboxThreshold').value = d.threshold;
   $id('resultTime').textContent = d.inference_time_ms + ' ms';
   $id('resultLoc').textContent = d.localization ? d.localization.method.toUpperCase() + ' (' + (d.localization.confidence * 100).toFixed(0) + '%)' : '未启用';
   $id('resultBlock').style.display = ''; $id('exportBtn').style.display = 'block';
@@ -1449,6 +1466,7 @@ $id('batchStartBtn').addEventListener('click', async function () {
   var okCount = 0, ngCount = 0;
   for (var i = 0; i < files.length; i++) {
     var fd = new FormData(); fd.append('file', files[i]); fd.append('return_heatmap', 'false'); fd.append('enable_localization', 'false');
+    fd.append('threshold', parseFloat($id('bboxThreshold').value));
     var row = tbody.insertRow();
     row.innerHTML = '<td>' + (i + 1) + '</td><td style="font-size:11px;">' + files[i].name + '</td><td>...</td><td>...</td><td>...</td>';
     try {
@@ -1530,6 +1548,7 @@ async function startLiveCamera() {
         canvas.toBlob(async function (blob) {
           if (!_live.detecting) return;
           var fd = new FormData(); fd.append('file', blob, 'cam.jpg'); fd.append('return_heatmap', 'false'); fd.append('enable_localization', 'false');
+          fd.append('threshold', parseFloat($id('bboxThreshold').value));
           try {
             var r = await fetch(BASE + '/api/detect', { method: 'POST', body: fd }); var d = await r.json();
             var oc = canvas.getContext('2d'); oc.fillStyle = d.is_anomaly ? 'rgba(224,64,72,0.25)' : 'rgba(40,184,80,0.12)';
