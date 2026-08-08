@@ -355,6 +355,13 @@ select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 2px var
 .wf-right img { width: 100%; height: 100%; object-fit: contain; }
 .wf-right .empty { text-align: center; color: var(--text3); }
 .wf-right .empty .icon { font-size: 44px; opacity: 0.08; }
+.wf-preview-box { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+.wf-preview-box img { width: 100%; height: 100%; object-fit: contain; }
+.wf-preview-box .wf-arrow { position: absolute; top: 50%; transform: translateY(-50%); width: 34px; height: 44px; border: 1px solid var(--border); background: var(--surface); color: var(--text2); font-size: 20px; line-height: 1; cursor: pointer; border-radius: 6px; box-shadow: var(--shadow); z-index: 2; display: flex; align-items: center; justify-content: center; }
+.wf-preview-box .wf-arrow:hover { background: var(--cyan); color: var(--on-cyan); border-color: var(--cyan); }
+.wf-preview-box .wf-arrow-l { left: 10px; }
+.wf-preview-box .wf-arrow-r { right: 10px; }
+.wf-preview-box .wf-preview-meta { position: absolute; bottom: 8px; right: 12px; font-size: 11px; font-family: var(--mono); color: var(--text2); background: var(--surface); border: 1px solid var(--border); padding: 2px 8px; border-radius: 10px; z-index: 2; }
 .wf-actions { display: flex; gap: 8px; margin-top: 12px; }
 .wf-summary { background: var(--surface2); border: 1px solid var(--border); padding: 12px 14px; margin-top: 12px; font-size: 11px; border-radius: 6px; }
 .wf-summary .row { display: flex; justify-content: space-between; padding: 4px 0; }
@@ -1010,8 +1017,8 @@ function renderDashboard() {
 // ============================================================
 // WORKFLOW PAGE (分步检测)
 // ============================================================
-// 训练（构建记忆库）选图：缩略图网格 → 大图预览
-var _wfTrain = { urls: [], names: [] };
+// 训练（构建记忆库）选图：缩略图网格 + 右侧大图预览（前后箭头翻页）
+var _wfTrain = { urls: [], names: [], index: 0 };
 function renderWfTrainGrid() {
   var grid = $id('wfTrainGrid');
   if (!grid) return;
@@ -1022,6 +1029,28 @@ function renderWfTrainGrid() {
       '<img class="batch-thumb" src="' + u + '" alt="">' +
       '<div class="batch-cell-meta"><div class="batch-name" title="' + _wfTrain.names[i] + '">' + _wfTrain.names[i] + '</div></div></div>';
   }).join('');
+}
+function renderWfPreview() {
+  var pv = $id('wfPreview');
+  if (!pv) return;
+  if (!_wfTrain.urls.length) {
+    pv.innerHTML = '<div class="empty"><div class="icon">◈</div><div style="font-size:12px;color:var(--text3);margin-top:6px;">预览区域</div></div>';
+    return;
+  }
+  if (_wfTrain.index < 0) _wfTrain.index = _wfTrain.urls.length - 1;
+  if (_wfTrain.index >= _wfTrain.urls.length) _wfTrain.index = 0;
+  pv.innerHTML =
+    '<div class="wf-preview-box">' +
+    '<button class="wf-arrow wf-arrow-l" id="wfPrevBtn" title="上一张 (←)">‹</button>' +
+    '<img src="' + _wfTrain.urls[_wfTrain.index] + '" title="点击放大，← → 翻页">' +
+    '<button class="wf-arrow wf-arrow-r" id="wfNextBtn" title="下一张 (→)">›</button>' +
+    '<div class="wf-preview-meta">' + (_wfTrain.index + 1) + ' / ' + _wfTrain.urls.length + '</div>' +
+    '</div>';
+  var img = pv.querySelector('img');
+  img.style.cursor = 'zoom-in';
+  img.onclick = function () { lbOpen(_wfTrain.urls, _wfTrain.names, _wfTrain.index); };
+  $id('wfPrevBtn').onclick = function () { _wfTrain.index--; renderWfPreview(); };
+  $id('wfNextBtn').onclick = function () { _wfTrain.index++; renderWfPreview(); };
 }
 function renderWorkflow() {
   updateWorkflowStepper();
@@ -1070,21 +1099,13 @@ function renderWorkflowStep() {
           _wfTrain.names.push(f.name);
         });
         renderWfTrainGrid();
-        // 右侧预览第一张（点击可放大翻页）
-        var f0 = files[0];
-        if (f0 && f0.type.indexOf('image') === 0) {
-          var rdr = new FileReader();
-          rdr.onload = function (e) {
-            $id('wfPreview').innerHTML = '<img src="' + e.target.result + '" title="点击放大，← → 翻页">';
-            var img = $id('wfPreview').querySelector('img');
-            img.style.cursor = 'zoom-in';
-            img.onclick = function () { lbOpen(_wfTrain.urls, _wfTrain.names, 0); };
-          };
-          rdr.readAsDataURL(f0);
-        }
+        // 右侧大图预览：第一张 + 前后箭头翻页
+        _wfTrain.index = 0;
+        renderWfPreview();
       } else {
         $id('wfTrainDrop').classList.remove('has'); $id('wfTrainCount').textContent = '';
         $id('wfTrainGrid').style.display = 'none';
+        renderWfPreview();
       }
     });
     // 训练缩略图网格 → 大图预览
