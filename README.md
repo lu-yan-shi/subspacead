@@ -1,6 +1,6 @@
 # SubspaceAD
 
-基于 DINOv2 特征和 PCA 子空间建模的少样本异常检测服务，专为工业质检场景设计。仅需 1-2 张正常图像即可训练，支持多种评分方法和可视化模式。
+基于 DINOv2 特征 + 正常图特征记忆库（memory-bank）的少样本异常检测服务，专为工业质检场景设计。仅需 1-2 张正常图像即可构建记忆库（Training-Free），通过余弦相似度逐 patch 匹配检测异常，支持多种相似度聚合与可视化模式。底层复用 DuoAD 管线（DINOv2-with-registers + CLS-patch 显著性 + 多层特征融合）。
 
 ---
 
@@ -37,13 +37,13 @@ python api.py
 
 ### 交互式工具（`GET /`）
 
-浏览器打开后可进行可视化测试 — 上传正常图像训练 PCA 模型，再对待测图像进行异常检测，支持热力图叠加、左右对比、缺陷框标注三种可视化模式。
+浏览器打开后可进行可视化测试 — 上传正常图像构建特征记忆库，再对待测图像进行异常检测，支持热力图叠加、左右对比、缺陷框标注三种可视化模式。
 
 ### 业务端点
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/train` | 使用正常图像训练 PCA 子空间模型 |
+| POST | `/api/train` | 使用正常图像构建特征记忆库 |
 | POST | `/api/detect` | 对待测图像进行异常检测 |
 | POST | `/api/reset` | 重置检测器状态 |
 | GET | `/api/status` | 查看训练状态和模型信息 |
@@ -55,9 +55,14 @@ python api.py
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `files` | File[] | 是 | 正常图像（1-2 张即可） |
-| `image_res` | int | 否 | 输入分辨率（默认 512） |
-| `pca_ev` | float | 否 | PCA 方差保留比例 0-1（默认 0.99） |
-| `score_method` | string | 否 | 评分方法（默认 reconstruction） |
+| `image_res` | int | 否 | 输入分辨率（默认 448） |
+| `similarity_aggregation` | string | 否 | 相似度聚合：max / top1_mean / knn_weighted（默认 max） |
+| `layer_fusion` | string | 否 | 多层融合：score_avg / score_max / feature_avg / feature_concat（默认 score_avg） |
+| `layers` | string | 否 | 特征层索引，逗号分隔（默认 8,10,12） |
+| `coreset_ratio` | float | 否 | 记忆库 coreset 比例，0.0=关闭（默认 0.0） |
+| `coreset_seed` | int | 否 | coreset 采样种子（默认 42） |
+| `knn_k` | int | 否 | knn_weighted 近邻数（默认 9） |
+| `knn_temperature` | float | 否 | knn_weighted 逆距离加权温度（默认 1.0） |
 
 #### `POST /api/detect`
 
@@ -83,14 +88,24 @@ python api.py
 
 ---
 
-## 评分方法
+## 相似度聚合（`similarity_aggregation`）
 
 | 方法 | 说明 | 适用场景 |
 |------|------|----------|
-| `reconstruction`（默认） | PCA 重建误差 | 通用场景 |
-| `mahalanobis` | 马氏距离 | 对异常更敏感 |
-| `euclidean` | 欧氏距离 | 计算最简单 |
-| `cosine` | 余弦距离 | 对尺度不敏感 |
+| `max`（默认） | 取记忆库最近邻（top-1）相似度 | 通用，最快的单点聚合 |
+| `top1_mean` | top 1% 近邻相似度均值 | 比 max 更稳，对离群点不敏感 |
+| `knn_weighted` | top-k 近邻逆距离加权（softmax） | 更鲁棒，配合 `knn_k` / `knn_temperature` |
+
+> 记忆库匹配基于逐 patch 余弦相似度（L2 归一化后 rescale 到 [0,1]），异常分数 = 1 − 聚合相似度。`knn_k=1` 的 `knn_weighted` 数值上等价于 `max`。
+
+### 多层融合（`layer_fusion`）
+
+| 方法 | 说明 |
+|------|------|
+| `score_avg`（默认） | 逐层分数平均 |
+| `score_max` | 逐层分数取最大 |
+| `feature_avg` | 层间特征平均后打分 |
+| `feature_concat` | 层间特征拼接后打分 |
 
 ## 可视化模式
 
@@ -109,9 +124,20 @@ python api.py
 | `PORT` | `8704` | 服务端口 |
 | `MESQUARE_URL` | `http://localhost:8000` | MeSquare 平台地址 |
 | `BUSINESS_PREFIX` | `/api` | 业务端点前缀 |
-| `DEFAULT_IMAGE_RES` | `512` | 默认输入分辨率 |
-| `DEFAULT_PCA_EV` | `0.99` | PCA 方差保留比例 |
-| `DEFAULT_SCORE_METHOD` | `reconstruction` | 默认评分方法 |
+| `MODEL_PATH` | `facebook/dinov2-with-registers-base` | DINOv2 模型（HF id 或本地目录） |
+| `DEFAULT_IMAGE_RES` | `448` | 默认输入分辨率 |
+| `SUBSPACE_SIMILARITY_AGGREGATION` | `max` | 相似度聚合：max / top1_mean / knn_weighted |
+| `SUBSPACE_LAYER_FUSION` | `score_avg` | 多层融合方法 |
+| `SUBSPACE_LAYERS` | `8,10,12` | 特征层索引 |
+| `CORESET_RATIO` | `0.0` | 记忆库 coreset 比例（0=关闭） |
+| `CORESET_SEED` | `42` | coreset 采样种子 |
+| `KNN_K` | `9` | knn_weighted 近邻数 |
+| `KNN_TEMPERATURE` | `1.0` | knn_weighted 温度 |
+| `DEFAULT_LOCALIZE` | `true` | 是否启用目标定位 |
+| `DEFAULT_LOCALIZATION_METHOD` | `auto` | 定位策略：auto / saliency / contour / manual / none |
+| `DEFAULT_CROP_TO_ROI` | `true` | 定位后是否裁切 ROI 检测 |
+| `ROI_MARGIN_RATIO` | `0.10` | ROI 扩展边距比例 |
+| `ENABLE_LAYOUTAD` | `true` | 是否启用 LayoutAD GNN 结构 double-check |
 
 ---
 
@@ -131,23 +157,27 @@ SubspaceAD/
 │   │   └── routes.py            # 业务端点（/api/train、/api/detect、/api/reset、/api/status）
 │   ├── utils/
 │   │   └── webhook.py           # MeSquare webhook 通知器
-│   └── templates/
+│   └── frontend/
 │       └── index.html           # 可视化测试页面
 ├── models/
-│   ├── detector.py              # SubspaceAnomalyDetector 封装类
-│   └── subspacead/              # 核心算法模块
-│       ├── core/
-│       │   ├── extractor.py     # DINOv2 特征提取
-│       │   ├── pca.py           # GPU 加速 PCA
-│       │   └── patching.py      # 图像分块
-│       ├── post_process/
-│       │   ├── scoring.py       # 异常分数计算
-│       │   └── specular.py      # 高光滤波
-│       └── utils/
-│           ├── common.py        # 通用工具
-│           └── viz.py           # 可视化工具
-├── weights/                     # DINOv2 模型权重
+│   ├── detector.py              # SubspaceAnomalyDetector 封装类（调用 DuoAD 管线）
+│   ├── subspacead/              # 定位与可视化工具
+│   │   ├── core/
+│   │   │   └── localization.py  # ObjectLocalizer + ROI 裁切
+│   │   └── utils/
+│   │       ├── common.py        # 通用工具
+│   │       └── viz.py           # 可视化工具
+│   └── layoutad/                # LayoutAD GNN 结构 double-check
+│       ├── inference.py
+│       └── graph_check.py       # 免训练图结构校验
+├── vendor/
+│   └── ad-pipelines/            # vendored DuoAD 算法包（Docker 构建时 pip install）
+│       └── src/ad_pipelines/
+│           ├── pipelines/       # DuoAD/PatchIAD/PatchEAD 管线
+│           └── utils/coreset.py # PatchCore 式贪心 coreset 采样
+├── weights/                     # 可选本地 DINOv2 权重（默认 HF 在线加载）
 ├── examples/                    # 测试数据
+├── scripts/                     # 模型下载脚本 + docker 入口
 ├── deploy/
 │   ├── Dockerfile.gpu           # GPU 镜像（CUDA 12.6）
 │   └── Dockerfile.cpu           # CPU 镜像（PyTorch CPU）

@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.3.0] — 2026-08-08
+
+### Changed（架构迁移）
+- **核心算法从 PCA 子空间迁移到 DINOv2 记忆库（memory-bank）**：底层改为 ad_pipelines 包中的 DuoAD 管线（DINOv2-with-registers + CLS-patch 显著性 + 多层融合），删除旧 PCA 实现（`models/subspacead/core/pca.py`、`extractor.py`、`patching.py`、`post_process/scoring.py`、`specular.py`）
+- 评分机制：PCA 重建误差 → 记忆库逐 patch 余弦相似度聚合（`max` / `top1_mean` / `knn_weighted`）
+- ad_pipelines 改为从仓库内 `vendor/ad-pipelines/` 构建，不再 git clone GitHub，镜像重建不会丢失本地算法改动
+- 文档同步更新（README / CLAUDE.md 移除 PCA 描述）
+
+### Added
+- PatchCore 式 coreset 记忆库子采样：`CORESET_RATIO`（默认 0.0=关闭）
+- `knn_weighted` 相似度聚合：`KNN_K`、`KNN_TEMPERATURE`
+- 训练参数变化时自动重建管线并复用模型权重（不再因重训参数失效）
+
 ## [1.2.2] — 2026-06-01
 
 ### Changed
