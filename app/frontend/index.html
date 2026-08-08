@@ -1010,6 +1010,19 @@ function renderDashboard() {
 // ============================================================
 // WORKFLOW PAGE (分步检测)
 // ============================================================
+// 训练（构建记忆库）选图：缩略图网格 → 大图预览
+var _wfTrain = { urls: [], names: [] };
+function renderWfTrainGrid() {
+  var grid = $id('wfTrainGrid');
+  if (!grid) return;
+  if (!_wfTrain.urls.length) { grid.style.display = 'none'; return; }
+  grid.style.display = '';
+  grid.innerHTML = _wfTrain.urls.map(function (u, i) {
+    return '<div class="batch-cell" data-i="' + i + '" title="点击预览">' +
+      '<img class="batch-thumb" src="' + u + '" alt="">' +
+      '<div class="batch-cell-meta"><div class="batch-name" title="' + _wfTrain.names[i] + '">' + _wfTrain.names[i] + '</div></div></div>';
+  }).join('');
+}
 function renderWorkflow() {
   updateWorkflowStepper();
   renderWorkflowStep();
@@ -1035,6 +1048,7 @@ function renderWorkflowStep() {
       '<div class="tip">上传 <b>3-5 张正常产品图像</b>（多角度拍摄），系统将自动构建特征记忆库。</div>' +
       '<div class="drop-z" id="wfTrainDrop"><div class="drop-z-text">拖放模板图像</div><div class="drop-z-hint">PNG / JPG / BMP · 最大 50MB</div><input type="file" id="wfTrainFiles" multiple accept="image/png,image/jpeg,image/jpg,image/bmp,image/tiff"></div>' +
       '<div class="file-n" id="wfTrainCount"></div>' +
+      '<div class="batch-grid" id="wfTrainGrid" style="display:none;"></div>' +
       '<div class="fg-r"><div class="fg"><label>分辨率</label><select id="wfImageRes"><option value="256">256</option><option value="384">384</option><option value="448" selected>448</option><option value="512">512</option></select></div><div class="fg"><label>聚合</label><select id="wfSimAgg"><option value="max" selected>MAX</option><option value="top1_mean">TOP1%</option></select></div></div>' +
       '<div class="fg-r"><div class="fg"><label>融合</label><select id="wfLayerFusion"><option value="score_avg" selected>分数平均</option><option value="score_max">分数最大</option><option value="feature_avg">特征平均</option><option value="feature_concat">特征拼接</option></select></div><div class="fg"><label>特征层</label><input type="text" id="wfLayers" value="8,10,12"></div></div>' +
       '<button class="btn btn-p" id="wfTrainBtn" style="width:100%;">构建记忆库</button>' +
@@ -1047,13 +1061,36 @@ function renderWorkflowStep() {
       var n = files.length;
       if (n > 0) {
         $id('wfTrainDrop').classList.add('has'); $id('wfTrainCount').textContent = '已选择 ' + n + ' 张图像';
+        // 释放上一轮预览 URL，重建缩略图网格
+        _wfTrain.urls.forEach(function (u) { try { URL.revokeObjectURL(u); } catch (e) {} });
+        _wfTrain.urls = []; _wfTrain.names = [];
+        Array.prototype.forEach.call(files, function (f) {
+          if (f.type && f.type.indexOf('image/') !== 0) return;
+          _wfTrain.urls.push(URL.createObjectURL(f));
+          _wfTrain.names.push(f.name);
+        });
+        renderWfTrainGrid();
+        // 右侧预览第一张（点击可放大翻页）
         var f0 = files[0];
         if (f0 && f0.type.indexOf('image') === 0) {
           var rdr = new FileReader();
-          rdr.onload = function (e) { $id('wfPreview').innerHTML = '<img src="' + e.target.result + '">'; };
+          rdr.onload = function (e) {
+            $id('wfPreview').innerHTML = '<img src="' + e.target.result + '" title="点击放大，← → 翻页">';
+            var img = $id('wfPreview').querySelector('img');
+            img.style.cursor = 'zoom-in';
+            img.onclick = function () { lbOpen(_wfTrain.urls, _wfTrain.names, 0); };
+          };
           rdr.readAsDataURL(f0);
         }
-      } else { $id('wfTrainDrop').classList.remove('has'); $id('wfTrainCount').textContent = ''; }
+      } else {
+        $id('wfTrainDrop').classList.remove('has'); $id('wfTrainCount').textContent = '';
+        $id('wfTrainGrid').style.display = 'none';
+      }
+    });
+    // 训练缩略图网格 → 大图预览
+    $id('wfTrainGrid').addEventListener('click', function (e) {
+      var c = e.target.closest('.batch-cell');
+      if (c) lbOpen(_wfTrain.urls, _wfTrain.names, +c.dataset.i);
     });
     $id('wfTrainBtn').addEventListener('click', wfDoTrain);
     var n2 = $id('wfNextTo2'); if (n2) n2.addEventListener('click', function () { _wf.step = 2; renderWorkflow(); });
@@ -1343,30 +1380,32 @@ $id('batchFileList').addEventListener('click', function (e) {
   }
   // 点击缩略图 → 大图预览
   var c = e.target.closest('.batch-cell');
-  if (c) lbShow(+c.dataset.i);
+  if (c) lbOpen(_batch.urls, _batch.files.map(function (f) { return f.name; }), +c.dataset.i);
 });
 
-// ── 批量大图预览 lightbox ──
-var _lbIndex = 0;
-function lbShow(i) {
-  if (!_batch.files.length) return;
-  if (i < 0) i = _batch.files.length - 1;
-  if (i >= _batch.files.length) i = 0;
-  _lbIndex = i;
-  $id('lbImg').src = _batch.urls[i];
-  $id('lbMeta').textContent = (i + 1) + ' / ' + _batch.files.length + ' · ' + _batch.files[i].name;
+// ── 大图预览 lightbox（批量/训练通用） ──
+var _lb = { urls: [], names: [], index: 0 };
+function lbRender() {
+  var n = _lb.urls.length;
+  if (!n) return;
+  if (_lb.index < 0) _lb.index = n - 1;
+  if (_lb.index >= n) _lb.index = 0;
+  $id('lbImg').src = _lb.urls[_lb.index];
+  $id('lbMeta').textContent = (_lb.index + 1) + ' / ' + n + ' · ' + _lb.names[_lb.index];
   $id('batchLightbox').style.display = 'flex';
 }
+function lbShow(i) { _lb.index = i; lbRender(); }
+function lbOpen(urls, names, i) { _lb.urls = urls; _lb.names = names; lbShow(i); }
 function lbHide() { $id('batchLightbox').style.display = 'none'; }
 $id('lbBackdrop').addEventListener('click', lbHide);
 $id('lbClose').addEventListener('click', lbHide);
-$id('lbPrev').addEventListener('click', function () { lbShow(_lbIndex - 1); });
-$id('lbNext').addEventListener('click', function () { lbShow(_lbIndex + 1); });
+$id('lbPrev').addEventListener('click', function () { lbShow(_lb.index - 1); });
+$id('lbNext').addEventListener('click', function () { lbShow(_lb.index + 1); });
 document.addEventListener('keydown', function (e) {
   if ($id('batchLightbox').style.display !== 'flex') return;
   if (e.key === 'Escape') lbHide();
-  else if (e.key === 'ArrowLeft') lbShow(_lbIndex - 1);
-  else if (e.key === 'ArrowRight') lbShow(_lbIndex + 1);
+  else if (e.key === 'ArrowLeft') lbShow(_lb.index - 1);
+  else if (e.key === 'ArrowRight') lbShow(_lb.index + 1);
 });
 
 $id('batchStartBtn').addEventListener('click', async function () {
