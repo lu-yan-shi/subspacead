@@ -434,7 +434,7 @@ async def status(request: Request):
         "layers": list(detector.layers),
         "threshold": getattr(detector, "threshold", 0.5),
         "score_base": getattr(detector, "score_base", 0.0),
-        "score_scale": getattr(detector, "score_scale", 0.5),
+        "score_scale": getattr(detector, "score_scale", 0.15),
         "train_info": request.app.state.train_info,
     }
 
