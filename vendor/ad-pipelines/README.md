@@ -58,20 +58,6 @@ The main entry point is `eval.py`.
 
 ### Basic Example
 
-DINOv3
-```bash
-python eval.py \
-  --model dinov3_vit \
-  --model_path /path/to/dinov3-vitb16-pretrain-lvd1689m \
-  --data_path /path/to/MVTec \
-  --pipeline duoad \
-  --image_resolution 512 \
-  --layers 8 10 12 \
-  --augmentation_mode auto \
-  --shots 1 2 4 \
-  --output_path ./outputs/mvtec_dinov3
-```
-
 DINOv2
 ```bash
 python eval.py \
@@ -106,7 +92,7 @@ python eval.py \
 
 | Argument | Default | Description |
 |---|---|---|
-| `--model` | `dinov3_vit` | Model key (see [Models](#models)) |
+| `--model` | `dinov2_with_register` | Model key (see [Models](#models)) |
 | `--model_path` | *(required)* | Path to pre-downloaded model weights |
 | `--data_path` | *(required)* | Root path to the dataset |
 | `--dataset` | *(auto-detect)* | Dataset type: `mvtec`, `visa`, `realiad`. Inferred from `--data_path` if omitted |
@@ -166,8 +152,6 @@ Prefer passing `--dataset` explicitly to avoid ambiguity.
 |---|---|---|---|
 | `dinov2` | DINOv2 (HuggingFace) | Yes | Yes |
 | `dinov2_with_register` | DINOv2 + Register Tokens | Yes | Yes |
-| `dinov3_vit` | DINOv3 ViT (RoPE) | Yes | Yes |
-| `dinov3_convnext` | DINOv3 ConvNeXt | No | No |
 | `visreg` | VISReg ViT (ImageNet-1K) | Yes | Yes |
 | `open_clip` | OpenCLIP | No | No |
 | `meta_clip2` | MetaCLIP2 | Yes | Yes |
@@ -180,9 +164,7 @@ All models share a unified `BaseModel` interface. See [`models/README.md`](src/a
 `visreg` loads a local VISReg ImageNet-1K checkpoint. Pass `--model_path` either to `visreg-vit-b-inet1k.pth` or `visreg-vit-l-inet1k.pth`, or to a directory containing exactly one such file. VISReg supports dynamic input resolution; use `--model_resolution` or `--image_resolution` to override its default 224 px input size.
 
 **Resolution notes for patch-based models:**
-- For ViT/16 backbones (`dinov2`, `dinov2_with_register`, `dinov3_vit`, `meta_clip2`), the effective patch grid is derived as `resolution // patch_size`. Resolutions that are not exact multiples of the patch size silently truncate the remainder (e.g. `--image_resolution 518` with patch 16 yields a 32×32 grid and drops the last 14 pixels). Use a multiple of the patch size or the model's native resolution for best results.
-- `dinov3_convnext` uses a 32×32 patch grid; non-multiple resolutions are also truncated.
-- `dinov3_convnext` also does not support multi-layer feature extraction; `--layers` must be `-1` (the default).
+- For ViT/16 backbones (`dinov2`, `dinov2_with_register`, `meta_clip2`), the effective patch grid is derived as `resolution // patch_size`. Resolutions that are not exact multiples of the patch size silently truncate the remainder (e.g. `--image_resolution 518` with patch 16 yields a 32×32 grid and drops the last 14 pixels). Use a multiple of the patch size or the model's native resolution for best results.
 
 ---
 

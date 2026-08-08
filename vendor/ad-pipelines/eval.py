@@ -11,12 +11,10 @@ from torchvision import transforms
 from tqdm.auto import tqdm
 
 from ad_pipelines.models import (
-    DinoV2Model, 
-    DinoV2WithRegisterModel, 
-    DinoV3ViTModel, 
-    DinoV3ConvNextModel, 
+    DinoV2Model,
+    DinoV2WithRegisterModel,
     VisRegModel,
-    OpenCLIPModel, 
+    OpenCLIPModel,
     MetaCLIP2Model,
     LingBotVisionModel,
     EUPEViTModel,
@@ -56,7 +54,7 @@ def parse_args():
     parser.add_argument("--shots", type=int, nargs='+', default=[1, 2, 4], 
                         help="List of shots for few-shot learning (e.g., --shots 1 4 8)")
     parser.add_argument("--pipeline", type=str, default="patchead", choices=PIPELINE_MAP.keys())
-    parser.add_argument("--model", type=str, default="dinov3_vit", choices=MODEL_MAP.keys())
+    parser.add_argument("--model", type=str, default="dinov2", choices=MODEL_MAP.keys())
     parser.add_argument(
         "--augmentation_mode",
         type=str,
@@ -104,8 +102,6 @@ DTYPE_MAP = {
 _MODEL_MAP_ALL = {
     "dinov2": DinoV2Model,
     "dinov2_with_register": DinoV2WithRegisterModel,
-    "dinov3_vit": DinoV3ViTModel,
-    "dinov3_convnext": DinoV3ConvNextModel,
     "visreg": VisRegModel,
     "open_clip": OpenCLIPModel,
     "meta_clip2": MetaCLIP2Model,
@@ -214,11 +210,6 @@ def main(args):
         extra_kwargs["similarity_aggregation"] = args.duoad_sim_method
     if args.pipeline in ("patchead", "patchiad", "duoad"):
         extra_kwargs["output_feature_maps_indices"] = tuple(args.layers)
-        if args.model == "dinov3_convnext" and args.layers != [-1]:
-            raise ValueError(
-                "dinov3_convnext only supports a single last-layer feature map "
-                "(--layers -1). Multi-layer fusion is not implemented for ConvNeXt backbones."
-            )
     if args.pipeline in ("patchiad", "duoad"):
         if args.fusion is not None:
             extra_kwargs["layer_fusion_method"] = args.fusion

@@ -12,14 +12,11 @@ models/
 ├── config_base.py                   # Model configuration dataclasses (ViTConfig, ConvNextConfig)
 ├── model_dinov2.py                  # DINOv2 backbone
 ├── model_dinov2_with_register.py    # DINOv2 with register tokens
-├── model_dinov3_vit.py              # DINOv3 ViT (RoPE) backbone
-├── model_dinov3_convnext.py         # DINOv3 ConvNeXt backbone
 ├── model_visreg.py                   # VISReg ViT backbone
 ├── model_open_clip.py               # OpenCLIP backbone
 ├── model_meta_clip2.py              # MetaCLIP2 backbone
 ├── model_lingbot_vision.py          # LingBot-Vision backbone
 ├── hf_model_dinov2_register.py      # HuggingFace backbone definition for DINOv2 + registers
-├── hf_model_dinov3_vit.py           # HuggingFace backbone definition for DINOv3 ViT
 ├── hf_model_meta_clip_2.py          # HuggingFace backbone definition for MetaCLIP2
 └── experiment.py                    # Experimental model utilities
 ```
@@ -32,8 +29,6 @@ models/
 |---|---|---|---|---|
 | `DinoV2Model` | `dinov2` | DINOv2 ViT (HuggingFace) | Yes | Yes |
 | `DinoV2WithRegisterModel` | `dinov2_with_register` | DINOv2 + Register Tokens | Yes | Yes |
-| `DinoV3ViTModel` | `dinov3_vit` | DINOv3 ViT with RoPE | Yes | Yes |
-| `DinoV3ConvNextModel` | `dinov3_convnext` | DINOv3 ConvNeXt | No | No |
 | `VisRegModel` | `visreg` | VISReg ViT (ImageNet-1K) | Yes | Yes |
 | `OpenCLIPModel` | `open_clip` | OpenCLIP ViT | No | No |
 | `MetaCLIP2Model` | `meta_clip2` | MetaCLIP2 ViT | Yes | Yes |
@@ -112,7 +107,7 @@ class ConvNextConfig(BaseConfig):
 
 ## Resolution Handling
 
-- For flexible ViT models (DINOv2, DINOv3 ViT, VISReg, MetaCLIP2), `resolution` can be `None` to allow dynamic multi-resolution inference.
+- For flexible ViT models (DINOv2, VISReg, MetaCLIP2), `resolution` can be `None` to allow dynamic multi-resolution inference.
 - For fixed-input models (OpenCLIP, ConvNeXt), `resolution` must match the model's required input size.
 - Resolution can be overridden in `eval.py` using `--model_resolution` (model native input) or `--image_resolution` (pipeline-level override).
 
@@ -127,10 +122,10 @@ class ConvNextConfig(BaseConfig):
 ### Loading a Model
 
 ```python
-from ad_pipelines.models import DinoV3ViTModel
+from ad_pipelines.models import DinoV2WithRegisterModel
 
-model = DinoV3ViTModel(
-    model_path="/path/to/dinov3-vit-base",
+model = DinoV2WithRegisterModel(
+    model_path="/path/to/dinov2-with-registers-base",
     device="cuda",
     dtype=torch.float32,
 )

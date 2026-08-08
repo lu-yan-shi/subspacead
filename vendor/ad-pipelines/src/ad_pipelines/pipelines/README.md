@@ -220,13 +220,13 @@ pipeline.evaluation_multi_run(
 ## Usage Example
 
 ```python
-from ad_pipelines.models import DinoV3ViTModel
+from ad_pipelines.models import DinoV2WithRegisterModel
 from ad_pipelines.pipelines import PatchIADPipeline
 from ad_pipelines.pipelines.pipeline_base import AnomalyDetectionSetting
 from ad_pipelines.datas import MVTecDataset, SplitType
 
 # 1. Load model
-model = DinoV3ViTModel("/path/to/dinov3-vit-base", device="cuda")
+model = DinoV2WithRegisterModel("/path/to/dinov2-with-registers-base", device="cuda")
 
 # 2. Initialize pipeline
 pipeline = PatchIADPipeline(model, device="cuda", layer_fusion_method="score_avg")

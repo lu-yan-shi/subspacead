@@ -20,6 +20,29 @@
   --mono: "JetBrains Mono", "SF Mono", "Consolas", monospace;
   --gap: 6px;
 }
+/* 背景预设色（data-bg 属性切换，优先于 :root 默认值） */
+html[data-bg="midnight"]   { --bg: #0a1628; --bg2: #101d34; }
+html[data-bg="warm-gray"]  { --bg: #1c1a17; --bg2: #25231f; }
+html[data-bg="dark-green"] { --bg: #0d1a0d; --bg2: #152415; }
+
+/* 背景色切换控件 */
+.bg-swatch {
+  width: 14px; height: 14px; border-radius: 3px; border: 1px solid var(--border2);
+  cursor: pointer; padding: 0; flex-shrink: 0; transition: all 0.15s ease;
+}
+.bg-swatch:hover { transform: scale(1.15); border-color: var(--cyan); }
+.bg-swatch.active { border: 2px solid var(--cyan); box-shadow: 0 0 6px var(--cyan-glow); }
+.bg-reset {
+  background: var(--surface3); color: var(--text2); font-size: 10px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; width: 14px; height: 14px;
+}
+.bg-reset:hover { color: var(--text); }
+input#bgCustom {
+  width: 16px; height: 16px; padding: 0; border: 1px solid var(--border2); border-radius: 3px;
+  cursor: pointer; background: transparent; flex-shrink: 0;
+}
+input#bgCustom::-webkit-color-swatch-wrapper { padding: 1px; }
+input#bgCustom::-webkit-color-swatch { border: none; border-radius: 2px; }
 * { margin:0; padding:0; box-sizing:border-box; }
 body {
   font-family: var(--font); font-size: 12px; font-weight: 400;
@@ -165,7 +188,7 @@ select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 1px var
 
 /* Camera view */
 .cam-view {
-  position: relative; flex: 1; background: #0a0a0c;
+  position: relative; flex: 1; background: var(--bg);
   display: flex; align-items: center; justify-content: center; overflow: hidden;
 }
 .cam-view img, .cam-view video { width: 100%; height: 100%; object-fit: contain; }
@@ -287,7 +310,7 @@ select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 1px var
 .wf-step.done + .wf-step-line { background: var(--green); }
 .wf-content { flex: 1; display: flex; gap: 12px; overflow: hidden; min-height: 0; }
 .wf-left { width: 310px; flex-shrink: 0; overflow-y: auto; }
-.wf-right { flex: 1; background: #0a0a0c; border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; border-radius: 2px; }
+.wf-right { flex: 1; background: var(--bg); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; border-radius: 2px; }
 .wf-right img { width: 100%; height: 100%; object-fit: contain; }
 .wf-right .empty { text-align: center; color: var(--text3); }
 .wf-right .empty .icon { font-size: 44px; opacity: 0.08; }
@@ -409,7 +432,17 @@ select:focus, input:focus { border-color: var(--cyan); box-shadow: 0 0 0 1px var
   <div class="sep"></div>
   <div class="metric">设备 <b id="topDevice">--</b></div>
   <div class="sep"></div>
+  <div class="metric">分辨率 <b id="topRes">--</b></div>
+  <div class="sep"></div>
   <div class="metric">记忆库 <b id="topMem">--</b></div>
+  <div class="metric" id="bgPicker" title="背景颜色：点色块或自定义取色器">
+    <span>背景</span>
+    <button class="bg-swatch" data-bg="midnight"  style="background:#0a1628" title="深蓝"></button>
+    <button class="bg-swatch" data-bg="warm-gray" style="background:#1c1a17" title="暖灰"></button>
+    <button class="bg-swatch" data-bg="dark-green" style="background:#0d1a0d" title="墨绿"></button>
+    <button class="bg-swatch bg-reset" title="恢复默认" aria-label="恢复默认">↺</button>
+    <input type="color" id="bgCustom" title="自定义背景色">
+  </div>
   <div class="push"></div>
   <div class="metric" id="topClock">--</div>
 </div>
@@ -723,6 +756,47 @@ function toast(msg, t) { t = t || '';
 function showE(id, msg) { var e = document.getElementById(id); e.textContent = msg; e.classList.add('show'); }
 function hideE(id) { document.getElementById(id).classList.remove('show'); }
 function $id(id) { return document.getElementById(id); }
+
+// ── Background color switcher ──
+var BG_KEY = 'subspacead-bg';
+var BG_PRESETS = {
+  'midnight':  { bg: '#0a1628', bg2: '#101d34' },
+  'warm-gray': { bg: '#1c1a17', bg2: '#25231f' },
+  'dark-green':{ bg: '#0d1a0d', bg2: '#152415' },
+};
+function lightenHex(hex, amt) {
+  var n = parseInt(hex.slice(1), 16);
+  var mix = function (c) { return Math.round(c + (255 - c) * amt); };
+  return '#' + [mix((n >> 16) & 255), mix((n >> 8) & 255), mix(n & 255)]
+    .map(function (c) { return c.toString(16).padStart(2, '0'); }).join('');
+}
+function applyBg(bg) {
+  var root = document.documentElement;
+  root.removeAttribute('data-bg');
+  root.style.removeProperty('--bg'); root.style.removeProperty('--bg2');
+  if (bg && BG_PRESETS[bg]) {
+    root.setAttribute('data-bg', bg);
+  } else if (bg && /^#[0-9a-fA-F]{6}$/.test(bg)) {
+    root.style.setProperty('--bg', bg);
+    root.style.setProperty('--bg2', lightenHex(bg, 0.08));
+  }
+  document.querySelectorAll('.bg-swatch[data-bg]').forEach(function (s) {
+    s.classList.toggle('active', s.dataset.bg === bg);
+  });
+  try { if (bg) { localStorage.setItem(BG_KEY, bg); } else { localStorage.removeItem(BG_KEY); } } catch (e) {}
+}
+function initBg() {
+  document.querySelectorAll('.bg-swatch[data-bg]').forEach(function (s) {
+    s.addEventListener('click', function () { applyBg(s.dataset.bg); });
+  });
+  var reset = document.querySelector('.bg-reset');
+  if (reset) reset.addEventListener('click', function () { applyBg(null); });
+  var cus = $id('bgCustom');
+  if (cus) cus.addEventListener('input', function () { applyBg(cus.value); });
+  var saved = null;
+  try { saved = localStorage.getItem(BG_KEY); } catch (e) {}
+  if (saved) applyBg(saved);  // 恢复上次选择（localStorage 持久化）
+}
 
 // ── Status ──
 async function checkStatus() {
@@ -1397,6 +1471,7 @@ function refreshAnalytics() {
 // ============================================================
 // INIT
 // ============================================================
+initBg();
 checkStatus();
 hashToPage();
 refreshRecentTable();

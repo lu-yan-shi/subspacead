@@ -2,8 +2,6 @@ from . import config_base as config
 from .model_base import BaseModel, VisionEncoderOutput
 from .model_dinov2 import DinoV2Model
 from .model_dinov2_with_register import DinoV2WithRegisterModel
-from .model_dinov3_vit import DinoV3ViTModel
-from .model_dinov3_convnext import DinoV3ConvNextModel
 try:
     from .model_visreg import VisRegModel
 except ImportError:

@@ -29,14 +29,6 @@ except ImportError as e:
     _HAS_PIPELINE = False
     _MISSING_PIPELINE_MSG = str(e)
 
-# Optional: DINOv3 (gated model, requires HF auth)
-try:
-    from ad_pipelines.models import DinoV3ViTModel
-    _HAS_DINOV3 = True
-except ImportError:
-    DinoV3ViTModel = None  # type: ignore
-    _HAS_DINOV3 = False
-
 # Localization module (compatible with SubspaceAD attention maps)
 try:
     from .subspacead.core.localization import (
@@ -69,7 +61,6 @@ except ImportError as e:
 logger = logging.getLogger(__name__)
 
 # Default model: DINOv2 with registers (public, no auth required)
-# For DINOv3: set MODEL_PATH=facebook/dinov3-vitb16-pretrain-lvd1689m
 DEFAULT_MODEL_PATH = os.environ.get(
     "MODEL_PATH",
     "facebook/dinov2-with-registers-base",
@@ -287,15 +278,6 @@ class SubspaceAnomalyDetector:
 
         model_was_loaded = self.model is not None
         if not model_was_loaded:
-            # Auto-detect model class: DINOv3 if path contains "dinov3", else DINOv2
-            is_dinov3 = "dinov3" in self.model_path.lower()
-            if is_dinov3 and not _HAS_DINOV3:
-                logger.warning(
-                    "DINOv3 requested but not available, falling back to DINOv2. "
-                    "DINOv3 is a gated model requiring HuggingFace authentication."
-                )
-                is_dinov3 = False
-
             # Common kwargs: FP16 half-precision for GPU speed
             model_kwargs = {
                 "device": self._device_torch,
@@ -303,12 +285,8 @@ class SubspaceAnomalyDetector:
                 "resolution": self.image_res,
             }
 
-            if is_dinov3:
-                logger.info("Loading DINOv3 ViT: %s (FP16=%s)...", self.model_path, self.use_fp16)
-                self.model = DinoV3ViTModel(self.model_path, **model_kwargs)
-            else:
-                logger.info("Loading DINOv2 with registers: %s (FP16=%s)...", self.model_path, self.use_fp16)
-                self.model = DinoV2WithRegisterModel(self.model_path, **model_kwargs)
+            logger.info("Loading DINOv2 with registers: %s (FP16=%s)...", self.model_path, self.use_fp16)
+            self.model = DinoV2WithRegisterModel(self.model_path, **model_kwargs)
         else:
             logger.info("训练参数变更 — 重建 DuoAD pipeline（复用已加载模型 %s）", self.model_path)
 
