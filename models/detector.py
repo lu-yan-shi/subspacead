@@ -230,11 +230,12 @@ class SubspaceAnomalyDetector:
         self.threshold: float = 0.5
 
         # 归一化锚点：score_base=典型正常原始分，score_scale=e-folding 标度。
-        # 未校准兜底 base=0、scale=0.15：以示例缺陷图为准（test-1 raw≈0.14、test-2 raw≈0.19），
-        # 使缺陷强度 raw≈0.15 映射到分数≈0.63（e-folding），raw 0.14/0.19 → 0.61/0.71，高于默认阈值 0.5；
-        # 模板自匹配 raw≈0 → 0。校准流程（/api/calibrate）用用户正常图覆盖这两者。
+        # 未校准兜底 base=0、scale=0.10：以示例缺陷图为准（test-1 raw≈0.14、test-2 raw≈0.19），
+        # raw 0.14/0.19 → 0.75/0.85，与默认阈值 0.5 拉开明显距离；模板自匹配 raw≈0 → ≈0。
+        # 代价：scale 越小越陡峭，正常新图若 raw≈0.05-0.08 会映射到 0.39-0.55，
+        # 产线正常图建议跑 /api/calibrate 用真实基线覆盖这两者。
         self.score_base: float = 0.0
-        self.score_scale: float = 0.15
+        self.score_scale: float = 0.10
 
         # Localization
         self.enable_localization = enable_localization
