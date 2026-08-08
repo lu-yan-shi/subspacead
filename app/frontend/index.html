@@ -90,13 +90,11 @@ body {
 
 /* Floating collapse arrow at right edge of sidebar */
 .sb-arrow {
-  position: absolute; right: 5px; top: 50%; transform: translateY(-50%);
-  width: 30px; height: 30px; display: flex; align-items: center; justify-content: center;
-  font-size: 17px; color: var(--text3); cursor: pointer; border: 1px solid var(--border);
-  border-radius: 8px; transition: all 0.18s ease; z-index: 3; background: var(--surface2);
-  line-height: 1;
+  position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+  font-size: 26px; color: var(--text3); cursor: pointer; z-index: 3;
+  line-height: 1; user-select: none; transition: color 0.18s ease;
 }
-.sb-arrow:hover { color: var(--cyan); background: var(--cyan-dim); border-color: var(--cyan); }
+.sb-arrow:hover { color: var(--cyan); }
 .sidebar.collapsed .sb-arrow { right: 50%; transform: translate(50%, -50%); }
 .sidebar .nav-group { padding: 0 10px; }
 .sidebar .nav-label {
