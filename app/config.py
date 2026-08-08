@@ -56,6 +56,27 @@ MODEL_PATH = os.environ.get(
     "facebook/dinov2-with-registers-base",
 )
 MODEL_TYPE = os.environ.get("MODEL_TYPE", "dinov2_with_register")
+
+# 本地 DINOv3 权重目录（gated 模型无法自动下载，需预先放置）
+DINOV3_MODEL_PATH = os.environ.get("DINOV3_MODEL_PATH", "dinov3-vitb16-pretrain-lvd1689m")
+
+# 可用模型注册表（前端下拉框 + /api/model/switch 切换）
+AVAILABLE_MODELS = [
+    {
+        "id": "dinov2",
+        "name": "DINOv2-with-registers (base)",
+        "path": MODEL_PATH,  # 沿用现有 MODEL_PATH 环境变量
+        "default_layers": "8,10,12",
+        "default_res": 448,
+    },
+    {
+        "id": "dinov3-b16",
+        "name": "DINOv3 ViT-B16 (LVD-1689M)",
+        "path": DINOV3_MODEL_PATH,
+        "default_layers": "8,10,12",
+        "default_res": 448,
+    },
+]
 DEFAULT_IMAGE_RES = int(os.environ.get("DEFAULT_IMAGE_RES", "448"))
 SUBSPACE_SIMILARITY_AGGREGATION = os.environ.get("SUBSPACE_SIMILARITY_AGGREGATION", "max")
 SUBSPACE_LAYER_FUSION = os.environ.get("SUBSPACE_LAYER_FUSION", "score_avg")

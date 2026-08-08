@@ -211,5 +211,8 @@ weights/*.bin
 weights/*.safetensors
 weights/*.pt
 
+# DINOv3 本地权重（342MB + 内嵌 .git，不入库；Docker 部署用 bind mount）
+dinov3-vitb16-pretrain-lvd1689m/
+
 # ModelScope access token — was committed by mistake in 21d195e, never track again
 ModelScope_token

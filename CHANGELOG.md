@@ -13,6 +13,7 @@
 - `knn_weighted` 相似度聚合：`KNN_K`、`KNN_TEMPERATURE`
 - 训练参数变化时自动重建管线并复用模型权重（不再因重训参数失效）
 - DINOv3 支持（gated 模型）：detector 按 `MODEL_PATH` 含 `dinov3` 自动切换；compose 新增 `DINOV3_VARIANT` 变体开关（dinov2 / dinov3-b16 / s16 / l16）；entrypoint 识别 HF id 与本地目录两种模式（HF id 不再误下 DINOv2）
+- **前端 DINOv2/DINOv3 运行时切换**：顶部状态栏模型下拉框 + `GET /api/models` + `POST /api/model/switch`；切换后记忆库作废需重新构建；`DINOV3_MODEL_PATH` 注册表配置；Docker 以 bind mount 提供 DINOv3 权重
 
 ## [1.2.2] — 2026-06-01
 

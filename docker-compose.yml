@@ -7,6 +7,14 @@
 x-model-variant: &model-variant
   MODEL_PATH: /app/weights/${DINOV3_VARIANT:-dinov2}
   SUBSPACE_LAYERS: ${SUBSPACE_LAYERS:-8,10,12}
+  # DINOv3 本地权重目录（bind mount 提供, 见下方 volumes）
+  DINOV3_MODEL_PATH: /app/weights/dinov3-vitb16-pretrain-lvd1689m
+
+# DINOv3 权重 bind mount: 把宿主机权重目录挂进容器, 供 /api/model/switch 运行时切换
+# 若未放置权重, 前端下拉框该选项会显示「权重缺失」并禁用
+x-model-volumes: &model-volumes
+  - subspacead_weights:/app/weights
+  - ./dinov3-vitb16-pretrain-lvd1689m:/app/weights/dinov3-vitb16-pretrain-lvd1689m:ro
 
 services:
   subspacead-gpu:
@@ -26,8 +34,7 @@ services:
               count: 1
               capabilities: [gpu]
     environment: *model-variant
-    volumes:
-      - subspacead_weights:/app/weights
+    volumes: *model-volumes
     restart: unless-stopped
 
   subspacead-cpu:
@@ -40,8 +47,7 @@ services:
     ports:
       - "8704:8704"
     environment: *model-variant
-    volumes:
-      - subspacead_weights:/app/weights
+    volumes: *model-volumes
     restart: unless-stopped
 
 volumes:

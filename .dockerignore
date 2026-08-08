@@ -7,4 +7,6 @@ datas/
 weights/*.bin
 weights/*.safetensors
 weights/*.pt
+# DINOv3 本地权重（342MB，Docker 部署经 bind mount 提供，不打进镜像）
+dinov3-vitb16-pretrain-lvd1689m/
 ModelScope_token
