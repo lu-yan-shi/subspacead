@@ -36,7 +36,10 @@ print(f'Score: {score:.4f}')
   - `router.py` — `/mse/*` 标准监控端点
   - `metrics.py` — MetricsCollector + EndpointMetricsTracker + CpuSpikeMonitor
   - `logging.py` — MemoryLogHandler + 日志采集
-- `app/api/routes.py` — 业务端点（`/api/train`、`/api/detect`、`/api/reset`、`/api/status`）
+- `app/auth.py` — 登录认证核心（纯 stdlib：SQLite 用户表 + PBKDF2 密码哈希 + HMAC 无状态 token，**不含 fastapi** 便于本地单测）
+- `app/api/security.py` — FastAPI 鉴权依赖 `require_auth(request: Request)`（**必须保留 Request 类型注解**，否则被当 query 参数）
+- `app/api/auth_routes.py` — 认证端点（`/api/auth/login`、`/api/auth/me`、`/api/auth/change-password`），独立 router 免鉴权（否则被业务锁死）
+- `app/api/routes.py` — 业务端点（`/api/train`、`/api/detect`、`/api/reset`、`/api/status`），router 级依赖 `require_auth` 全量鉴权
 - `app/utils/webhook.py` — MeSquare webhook 通知器
 - `models/detector.py` — SubspaceAnomalyDetector 封装类（调用 DuoAD 管线 + 定位/Graph 双检）
   - 尺寸适配：任意长宽比图片经 **letterbox**（保比例缩放 + 灰边填充）进入 `image_res` 方形画布，避免拉伸变形；异常图/注意力图裁边后缩回原图尺寸，分数只在内容区计算
@@ -44,15 +47,19 @@ print(f'Score: {score:.4f}')
 - `vendor/ad-pipelines/` — vendored DuoAD (ad_pipelines) 源码，Docker 构建时 `pip install`（含 coreset/knn_weighted 改动）
 - `weights/` — 可选本地权重目录（默认走 HF 在线 `facebook/dinov2-with-registers-base`）
 - `examples/` — 示例图片
-- `app/frontend/index.html` — 服务管理界面（根路径 `/` 返回）
+- `app/frontend/index.html` — 服务管理界面（根路径 `/` 返回；未登录经 JS 跳转 `/login`）
+- `app/frontend/login.html` — 独立登录页（`/login` 返回；登录成功存 token 后跳转 `/`，已持有有效 token 自动回 `/`）
 - `deploy/` — Docker 部署配置
 
 ## 双前缀架构
 
 | 前缀 | 用途 | 示例 |
 |------|------|------|
-| `/mse/*` | 平台监控端点（MeSquare 管理） | `/mse/health`、`/mse/metrics` |
-| `/api/*` | 业务端点（用户私有） | `/api/train`、`/api/detect` |
+| `/mse/*` | 平台监控端点（MeSquare 管理，**不鉴权**） | `/mse/health`、`/mse/metrics` |
+| `/api/*` | 业务端点（用户私有，**需登录**） | `/api/train`、`/api/detect` |
+| `/api/auth/*` | 认证端点（登录/校验/改密码，免鉴权） | `/api/auth/login` |
+
+> 登录：独立登录页 `/login`，未登录访问 `/` 或 `/api/*` 返回 401 后前端跳转 `/login`。默认账号 `admin` / `admin123`（首次启动写入 SQLite，`data/users.db`，Docker 内 `/app/data` 持久卷，重启不重置）。登录后请尽快在界面「修改密码」。token 有效期 24h，前端 localStorage 保存，`/api/*` 需 `Authorization: Bearer <token>`。
 
 ## 环境变量
 
@@ -71,6 +78,11 @@ print(f'Score: {score:.4f}')
 | `CORESET_SEED` | `42` | coreset 采样种子 |
 | `KNN_K` | `9` | knn_weighted 近邻数 |
 | `KNN_TEMPERATURE` | `1.0` | knn_weighted 逆距离加权温度 |
+| `AUTH_DB_PATH` | `data/users.db` | SQLite 账号库路径（Docker 内 `/app/data` 持久卷） |
+| `AUTH_SECRET` | `subspacead-dev-secret-change-me` | token 签名密钥（生产请覆盖） |
+| `AUTH_TOKEN_EXPIRE_HOURS` | `24` | token 有效期（小时） |
+| `AUTH_ADMIN_USER` | `admin` | 初始管理员用户名 |
+| `AUTH_ADMIN_PASS` | `admin123` | 初始管理员密码（首次启动写入 DB） |
 
 ## Docker
 

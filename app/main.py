@@ -11,6 +11,7 @@ from fastapi.responses import FileResponse
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
+from .auth import init_auth
 from .config import (
     DEFAULT_IMAGE_RES,
     ENABLE_LAYOUTAD,
@@ -44,6 +45,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Service lifespan: load model on startup, notify MeSquare of lifecycle events."""
     init_log_capture()
+    init_auth()
 
     app.state.start_time = time.time()
     app.state.metrics_collector = MetricsCollector()
@@ -146,8 +148,16 @@ def create_app() -> FastAPI:
         frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
         return FileResponse(os.path.join(frontend_dir, "index.html"))
 
+    @app.get("/login", summary="Login", tags=["General"])
+    async def login_page():
+        frontend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "frontend")
+        return FileResponse(os.path.join(frontend_dir, "login.html"))
+
     from .mse.router import mse_router
     app.include_router(mse_router)
+
+    from .api.auth_routes import auth_router
+    app.include_router(auth_router)
 
     from .api.routes import business_router
     app.include_router(business_router)

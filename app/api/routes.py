@@ -12,8 +12,10 @@ from typing import List, Optional
 
 import cv2
 import numpy as np
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from PIL import Image
+
+from .security import require_auth
 
 from ..config import (
     BUSINESS_PREFIX,
@@ -44,7 +46,12 @@ from models.subspacead.utils.viz import (
     render_visualization,
 )
 
-business_router = APIRouter(prefix=BUSINESS_PREFIX, tags=["Business"])
+# router 级依赖：全部业务端点需登录（Bearer token）。/api/auth/* 在独立 router 不受影响。
+business_router = APIRouter(
+    prefix=BUSINESS_PREFIX,
+    dependencies=[Depends(require_auth)],
+    tags=["Business"],
+)
 logger = logging.getLogger(__name__)
 
 # 检测器访问串行化：单模型、单记忆库，train/detect/reset 本就该互斥执行。

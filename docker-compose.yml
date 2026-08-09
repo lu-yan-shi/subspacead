@@ -19,6 +19,7 @@ services:
       - MODEL_PATH=/app/weights/dinov2
     volumes:
       - subspacead_weights:/app/weights
+      - subspacead_data:/app/data
     restart: unless-stopped
 
   subspacead-cpu:
@@ -34,7 +35,9 @@ services:
       - MODEL_PATH=/app/weights/dinov2
     volumes:
       - subspacead_weights:/app/weights
+      - subspacead_data:/app/data
     restart: unless-stopped
 
 volumes:
   subspacead_weights:
+  subspacead_data:

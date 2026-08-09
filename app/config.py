@@ -91,6 +91,15 @@ LAYOUTAD_MASK2FORMER_WEIGHTS = os.environ.get("LAYOUTAD_MASK2FORMER_WEIGHTS", ""
 # Optional NVIDIA GPU resource collection
 ENABLE_GPU_METRICS = os.environ.get("ENABLE_GPU_METRICS", "false").lower() in {"1", "true", "yes"}
 
+# Authentication / user store (SQLite)
+# 账号密码存 SQLite（Docker 内 /app/data 持久卷），默认管理员首次启动自动创建。
+# /api/* 业务端点需 Bearer token；/mse/* 平台监控端点保持开放。
+AUTH_DB_PATH = os.environ.get("AUTH_DB_PATH", "data/users.db")
+AUTH_SECRET = os.environ.get("AUTH_SECRET", "subspacead-dev-secret-change-me")
+AUTH_TOKEN_EXPIRE_HOURS = int(os.environ.get("AUTH_TOKEN_EXPIRE_HOURS", "24"))
+AUTH_ADMIN_USER = os.environ.get("AUTH_ADMIN_USER", "admin")
+AUTH_ADMIN_PASS = os.environ.get("AUTH_ADMIN_PASS", "admin123")
+
 MONITOR_PATHS: FrozenSet[str] = frozenset({
     "/mse/health", "/mse/api-info", "/mse/metrics", "/mse/resources",
     "/mse/endpoint-metrics", "/mse/logs", "/openapi.json", "/docs", "/redoc",

@@ -213,3 +213,9 @@ weights/*.pt
 
 # ModelScope access token — was committed by mistake in 21d195e, never track again
 ModelScope_token
+
+# local verification scratch
+.verify/
+
+# local SQLite auth database (Docker 内挂在 /app/data 持久卷)
+data/
