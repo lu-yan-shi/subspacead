@@ -262,6 +262,11 @@ async def detect(
     if "localization" in result:
         resp["localization"] = result["localization"]
 
+    # 分步处理链（图像→定位→切割→检测→热力图→评定分→输出），与前端规范一一对应
+    if "pipeline" in result:
+        resp["pipeline"] = result["pipeline"]
+        resp["pipeline_ms"] = result.get("pipeline_ms", 0)
+
     # Double-check results
     if "graph_check" in result:
         resp["graph_check"] = result["graph_check"]
@@ -282,7 +287,20 @@ async def detect(
         resp["attention_map"] = _numpy_to_base64(attn_heatmap)
 
     if return_heatmap:
-        heatmap_bgr = create_heatmap(anomaly_map)
+        # 定位启用时，热力图裁剪到目标区域：bbox 内正常上色，区域外置 0（背景不干扰观感）
+        heatmap_src = anomaly_map
+        if "localization" in result and result["localization"]:
+            try:
+                bx, by, bw, bh = [int(round(v)) for v in result["localization"]["bbox"]]
+                hh, ww = anomaly_map.shape
+                bx = max(0, min(bx, ww)); by = max(0, min(by, hh))
+                bw = max(1, min(bw, ww - bx)); bh = max(1, min(bh, hh - by))
+                masked = np.zeros_like(anomaly_map)
+                masked[by:by + bh, bx:bx + bw] = anomaly_map[by:by + bh, bx:bx + bw]
+                heatmap_src = masked
+            except Exception:
+                heatmap_src = anomaly_map  # 坐标异常时回退全图热力图
+        heatmap_bgr = create_heatmap(heatmap_src)
         resp["heatmap"] = _numpy_to_base64(heatmap_bgr)
 
     try:
@@ -365,6 +383,7 @@ async def calibrate(
     detector.score_base = mean
     detector.score_scale = scale
     detector.threshold = detector.normalize_score(thr_raw)  # 恒等于 1 - 1/e ≈ 0.632
+    detector.is_calibrated = True
 
     normalized = [detector.normalize_score(r) for r in raw_scores]
     logger.info(
@@ -440,6 +459,7 @@ async def status(request: Request):
         "layer_fusion": detector.layer_fusion,
         "layers": list(detector.layers),
         "threshold": getattr(detector, "threshold", 0.5),
+        "is_calibrated": getattr(detector, "is_calibrated", False),
         "score_base": getattr(detector, "score_base", 0.0),
         "score_scale": getattr(detector, "score_scale", 0.10),
         "train_info": request.app.state.train_info,

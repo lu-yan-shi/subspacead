@@ -125,8 +125,29 @@ def render_visualization(
     img_np_rgb = ensure_rgb(img_np)
     heatmap = create_heatmap(anom_map)
 
+    # roi_bbox 可能是 float（detect 返回的 bbox 保留小数），切片/画框必须 int
+    if roi_bbox is not None:
+        roi_bbox = (
+            int(round(roi_bbox[0])), int(round(roi_bbox[1])),
+            int(round(roi_bbox[2])), int(round(roi_bbox[3])),
+        )
+
+    # 热力图裁剪到目标区域：roi_bbox 内叠加热力图，区域外保留原图（避免背景热力干扰观感）
+    def _roi_masked_blend():
+        blended = cv2.addWeighted(img_np_rgb, 0.6, heatmap, 0.4, 0)
+        if roi_bbox is None:
+            return blended
+        rx, ry, rw, rh = roi_bbox
+        rx = max(0, min(rx, w)); ry = max(0, min(ry, h))
+        rw = max(0, min(rw, w - rx)); rh = max(0, min(rh, h - ry))
+        if rw == 0 or rh == 0:
+            return blended
+        mask3 = np.zeros((h, w, 3), bool)
+        mask3[ry:ry + rh, rx:rx + rw] = True
+        return np.where(mask3, blended, img_np_rgb)
+
     if viz_mode == "overlay":
-        result = cv2.addWeighted(img_np_rgb, 0.6, heatmap, 0.4, 0)
+        result = _roi_masked_blend()
         if roi_bbox is not None:
             rx, ry, rw, rh = roi_bbox
             cv2.rectangle(result, (rx, ry), (rx + rw, ry + rh), (0, 255, 0), 2)
@@ -135,7 +156,7 @@ def render_visualization(
 
     elif viz_mode == "side_by_side":
         left = add_text_to_image(img_np_rgb, "Original")
-        right = cv2.addWeighted(img_np_rgb, 0.6, heatmap, 0.4, 0)
+        right = _roi_masked_blend()
         if roi_bbox is not None:
             rx, ry, rw, rh = roi_bbox
             cv2.rectangle(right, (rx, ry), (rx + rw, ry + rh), (0, 255, 0), 2)

@@ -8,6 +8,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import time
 import traceback
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
@@ -35,7 +36,8 @@ try:
     from .subspacead.core.localization import (
         ObjectLocalizer,
         LocalizationResult,
-        crop_to_roi,
+        # 别名导入：detect() 的 crop_to_roi 参数会遮蔽同名函数，调用处必须用此别名
+        crop_to_roi as crop_to_roi_fn,
         map_anomaly_to_original,
         expand_bbox_square,
     )
@@ -228,6 +230,8 @@ class SubspaceAnomalyDetector:
         # 对外通过 normalize_score() 锚定映射到 [0,1]。
         # 默认阈值 0.5 是归一化分数口径；校准会用正常图更新 base/scale 使其有意义。
         self.threshold: float = 0.5
+        # 阈值标定状态：/api/calibrate 成功后置 True；reset 重建检测器后回到 False
+        self.is_calibrated: bool = False
 
         # 归一化锚点：score_base=典型正常原始分，score_scale=e-folding 标度。
         # 未校准兜底 base=0、scale=0.10：以示例缺陷图为准（test-1 raw≈0.14、test-2 raw≈0.19），
@@ -445,6 +449,14 @@ class SubspaceAnomalyDetector:
         self.is_trained = True
         self._graph_ref_built = False  # Reset — will build on first detect
 
+        # 重训 = 新记忆库 → 旧标定锚点全部失效，复位到默认。
+        # 否则旧 base/scale/threshold 会继续作用在新库的分数上（曾出现"重训后分数对不上"）。
+        # 复位后必须重新跑 /api/calibrate 才有有意义的锚点。
+        self.is_calibrated = False
+        self.score_base = 0.0
+        self.score_scale = 0.10
+        self.threshold = 0.5
+
         # Build graph reference from template for structural double-check
         if self._graph_checker is not None:
             try:
@@ -560,13 +572,21 @@ class SubspaceAnomalyDetector:
         for i, test_img in enumerate(imgs):
             test_name = img_names[i]
             localization_info = None
+            pipeline_steps = []
             img_w, img_h = test_img.size  # 原始尺寸（用于输出对齐）
 
-            # 尺寸适配：保比例缩放 + 灰边填充为方形画布（非方形图不再拉伸变形）
+            # ── Step 0: 图像输入（读图 + letterbox）──
+            t0 = time.time()
             canvas, geom = _letterbox(test_img, self.image_res)
             canvas_w, canvas_h = canvas.size
+            pipeline_steps.append({
+                "key": "input", "label": "图像输入",
+                "status": "done", "ms": round((time.time() - t0) * 1000, 1),
+                "detail": f"{img_w}×{img_h}",
+            })
 
             # ── Step 1: Run SubspaceAD inference (on letterboxed canvas) ──
+            t0 = time.time()
             try:
                 with torch.no_grad():
                     output: PatchEADOutput = self.pipeline(
@@ -574,7 +594,9 @@ class SubspaceAnomalyDetector:
                         test_images=[canvas],
                         is_prompt_features=True,
                         resolution=self.image_res,
-                        return_attentioned_anomaly_map=False,
+                        # 必须 True：产出 attention_map（CLS-patch 显著性）供目标定位/ROI 裁切使用。
+                        # 开关不影响 anomaly_map/anomaly_score 语义（见 _calculate_anomaly_score），仅多算显著性。
+                        return_attentioned_anomaly_map=True,
                         upsample_anomaly_map=True,
                         upsample_resolution=(canvas_w, canvas_h),
                         output_feature_maps_indices=self.layers,
@@ -592,6 +614,7 @@ class SubspaceAnomalyDetector:
             # Extract outputs
             anomaly_map_full = output.anomaly_map.squeeze().numpy()  # [H, W]
             anomaly_score_raw = float(output.anomaly_score.item())
+            step1_ms = round((time.time() - t0) * 1000, 1)  # 全图推理耗时
 
             # Attention map (CLS-patch saliency — already at image resolution)
             if output.attention_map is not None:
@@ -600,6 +623,8 @@ class SubspaceAnomalyDetector:
                 attention_map = None
 
             # ── Step 2: Object localization using SubspaceAD attention map ──
+            t_localize = time.time()
+            crop_ms = 0.0  # 未定位时无 ROI 复检
             if do_localize and loc_method != "none" and attention_map is not None:
                 loc_result = self._localizer.localize(
                     canvas,
@@ -607,22 +632,32 @@ class SubspaceAnomalyDetector:
                     method=loc_method,
                 )
                 # bbox 从画布坐标换算回原始图片坐标（灰边偏移 + 缩放）
+                bx0 = (loc_result.bbox[0] - geom["ox"]) / geom["scale"]
+                by0 = (loc_result.bbox[1] - geom["oy"]) / geom["scale"]
+                bx1 = bx0 + loc_result.bbox[2] / geom["scale"]
+                by1 = by0 + loc_result.bbox[3] / geom["scale"]
+                # 裁到图片边界内：显著性可能漂到 letterbox 灰边，导致负数/越界坐标
+                bx0 = max(0.0, min(bx0, float(img_w)))
+                by0 = max(0.0, min(by0, float(img_h)))
+                bx1 = max(bx0, min(bx1, float(img_w)))
+                by1 = max(by0, min(by1, float(img_h)))
                 localization_info = {
                     "bbox": [
-                        round((loc_result.bbox[0] - geom["ox"]) / geom["scale"], 2),
-                        round((loc_result.bbox[1] - geom["oy"]) / geom["scale"], 2),
-                        round(loc_result.bbox[2] / geom["scale"], 2),
-                        round(loc_result.bbox[3] / geom["scale"], 2),
+                        round(bx0, 2),
+                        round(by0, 2),
+                        round(bx1 - bx0, 2),
+                        round(by1 - by0, 2),
                     ],
                     "confidence": round(loc_result.confidence, 4),
                     "method": loc_result.method,
                 }
 
                 # ── Step 3: Crop ROI and re-run if requested ──
+                crop_start = time.time()
                 if do_crop and loc_result.is_valid and loc_result.method not in (
                     "none", "saliency_fallback", "contour_fallback",
                 ):
-                    roi_img, roi_bbox = crop_to_roi(canvas, loc_result.bbox, margin=loc_margin)
+                    roi_img, roi_bbox = crop_to_roi_fn(canvas, loc_result.bbox, margin=loc_margin)
                     square_bbox = expand_bbox_square(roi_bbox, canvas.size)
                     roi_square = canvas.crop((
                         square_bbox[0], square_bbox[1],
@@ -655,8 +690,13 @@ class SubspaceAnomalyDetector:
                         interpolation=cv2.INTER_LINEAR,
                     )
 
-            # ── Post-processing ──
-            # 裁掉灰边、缩放回原始图片尺寸（分数只在内容区计算，避免灰边干扰）
+                crop_ms = round((time.time() - crop_start) * 1000, 1)
+
+            # localize = 全图推理(产 saliency/attention) + 定位计算；crop 计时单独扣出
+            localize_ms = round(step1_ms + max(0.0, (time.time() - t_localize) * 1000 - crop_ms), 1)
+
+            # ── Step 4: 热力图叠加（后处理：裁边、缩放回原图、归一化）──
+            t0 = time.time()
             anomaly_map_full = _content_to_original(anomaly_map_full, geom)
             if attention_map is not None:
                 attention_map = _content_to_original(attention_map, geom)
@@ -666,11 +706,26 @@ class SubspaceAnomalyDetector:
             # 使阈值（0.3 等）完全失真——所有图都被判为异常。
             # 归一化图仅用于热力图显示，评分保持绝对口径。
             anomaly_map_normalized = min_max_norm(anomaly_map_full)
+            heatmap_ms = round((time.time() - t0) * 1000, 1)
 
-            flat_scores = anomaly_map_full.flatten()
+            # ── Step 5: 评定分（目标区域 top-k）──
+            # 分数限定在目标区域（bbox）内：背景不计入 top-k，避免背景噪点稀释/干扰缺陷分。
+            # localization_info 与 anomaly_map_full 均已是原图像素坐标，空间一致。
+            t0 = time.time()
+            if localization_info and localization_info["bbox"]:
+                bx, by, bw, bh = [int(round(v)) for v in localization_info["bbox"]]
+                h, w = anomaly_map_full.shape
+                bx = max(0, min(bx, w)); by = max(0, min(by, h))
+                bw = max(1, min(bw, w - bx)); bh = max(1, min(bh, h - by))
+                flat_scores = anomaly_map_full[by:by + bh, bx:bx + bw].flatten()
+            else:
+                flat_scores = anomaly_map_full.flatten()  # 无定位/定位失败 → 全图兜底
             k = max(1, int(len(flat_scores) * top_k_ratio))
             top_k_mean = np.mean(np.sort(flat_scores)[-k:])
+            score_ms = round((time.time() - t0) * 1000, 1)
 
+            # ── Step 6: 结果输出（组装 result + 处理链）──
+            t0 = time.time()
             result = {
                 "image_name": test_name,
                 # 内部口径保留原始 top-k 均值（供校准计算锚点），对外分数归一化到 [0,1]
@@ -681,6 +736,49 @@ class SubspaceAnomalyDetector:
             }
             if localization_info:
                 result["localization"] = localization_info
+
+            # 处理链（与用户规范一一对应：图像→定位→切割→检测→热力图→评定分→输出）
+            did_crop = crop_ms > 0
+            pipeline_steps.extend([
+                {
+                    "key": "localize", "label": "目标定位",
+                    "status": "done" if localization_info else "skipped",
+                    "ms": localize_ms,
+                    "detail": (
+                        f"{localization_info['method']} {localization_info['confidence'] * 100:.0f}%"
+                        if localization_info else "未启用"
+                    ),
+                },
+                {
+                    "key": "crop", "label": "区域切割",
+                    "status": "done" if did_crop else "skipped",
+                    "ms": crop_ms,
+                    "detail": "bbox 复检" if did_crop else "未启用",
+                },
+                {
+                    "key": "detect", "label": "缺陷检测",
+                    "status": "done", "ms": crop_ms if did_crop else step1_ms,
+                    "detail": "ROI 复检" if did_crop else "全图推理",
+                },
+                {
+                    "key": "heatmap", "label": "热力图叠加",
+                    "status": "done", "ms": heatmap_ms, "detail": "已叠加",
+                },
+                {
+                    "key": "score", "label": "评定分",
+                    "status": "done", "ms": score_ms,
+                    "detail": f"{self.normalize_score(float(top_k_mean)):.4f}",
+                },
+                {
+                    "key": "output", "label": "结果输出",
+                    "status": "done", "ms": round((time.time() - t0) * 1000, 1),
+                    "detail": (
+                        "异常" if self.normalize_score(float(top_k_mean)) > self.threshold else "正常"
+                    ),
+                },
+            ])
+            result["pipeline"] = pipeline_steps
+            result["pipeline_ms"] = round((time.time() - t0) * 1000, 1)
 
             # ── Graph structure double-check (training-free) ──
             if self._graph_ref_built and self._graph_checker is not None:
